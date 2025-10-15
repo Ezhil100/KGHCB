@@ -44,13 +44,14 @@ except Exception:
             return None
 
 # LangChain imports
-from langchain_community.document_loaders import UnstructuredPDFLoader, PyPDFLoader
+from langchain_community.document_loaders import UnstructuredPDFLoader, PyPDFLoader, CSVLoader, UnstructuredExcelLoader
 from langchain_text_splitters.character import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
+import pandas as pd  # For Excel/CSV processing
 
 # =============================================================================
 # CONFIGURATION & INITIALIZATION
@@ -138,28 +139,83 @@ class ChatResponse(BaseModel):
 # DOCUMENT PROCESSING FUNCTIONS
 # =============================================================================
 def load_document(file_path: str):
+    """Load documents from PDF, Excel (.xlsx, .xls), or CSV files."""
     documents = []
     file_name = os.path.basename(file_path)
+    file_ext = os.path.splitext(file_name)[1].lower()
 
-    try:
-        loader = UnstructuredPDFLoader(file_path)
-        documents = loader.load()
-        if documents:
-            print(f"Loaded {file_name} using UnstructuredPDFLoader")
+    # Handle CSV files
+    if file_ext == '.csv':
+        try:
+            # Read CSV to format each row as a structured document
+            df = pd.read_csv(file_path)
+            print(f"Loaded CSV with {len(df)} rows and columns: {list(df.columns)}")
+            
+            # Convert each row to a structured text document
+            from langchain.schema import Document
+            documents = []
+            for idx, row in df.iterrows():
+                # Create structured text from row data
+                row_text = " | ".join([f"{col}: {row[col]}" for col in df.columns if pd.notna(row[col])])
+                documents.append(Document(
+                    page_content=row_text,
+                    metadata={"source": file_name, "row": idx + 1, "type": "csv"}
+                ))
+            
+            print(f"Loaded {file_name} as CSV with {len(documents)} records")
             return documents
-    except Exception as e:
-        print(f"UnstructuredPDFLoader failed for {file_name}: {e}")
-
-    try:
-        loader = PyPDFLoader(file_path)
-        documents = loader.load()
-        if documents:
-            print(f"Loaded {file_name} using PyPDFLoader")
+        except Exception as e:
+            print(f"CSV loading failed for {file_name}: {e}")
+            raise Exception(f"CSV processing failed for {file_name}: {e}")
+    
+    # Handle Excel files (.xlsx, .xls)
+    elif file_ext in ['.xlsx', '.xls']:
+        try:
+            # Read Excel to format each row as a structured document
+            df = pd.read_excel(file_path)
+            print(f"Loaded Excel with {len(df)} rows and columns: {list(df.columns)}")
+            
+            # Convert each row to a structured text document
+            from langchain.schema import Document
+            documents = []
+            for idx, row in df.iterrows():
+                # Create structured text from row data
+                row_text = " | ".join([f"{col}: {row[col]}" for col in df.columns if pd.notna(row[col])])
+                documents.append(Document(
+                    page_content=row_text,
+                    metadata={"source": file_name, "row": idx + 1, "type": "excel"}
+                ))
+            
+            print(f"Loaded {file_name} as Excel with {len(documents)} records")
             return documents
-    except Exception as e:
-        print(f"PyPDFLoader failed for {file_name}: {e}")
+        except Exception as e:
+            print(f"Excel loading failed for {file_name}: {e}")
+            raise Exception(f"Excel processing failed for {file_name}: {e}")
+    
+    # Handle PDF files
+    elif file_ext == '.pdf':
+        try:
+            loader = UnstructuredPDFLoader(file_path)
+            documents = loader.load()
+            if documents:
+                print(f"Loaded {file_name} using UnstructuredPDFLoader")
+                return documents
+        except Exception as e:
+            print(f"UnstructuredPDFLoader failed for {file_name}: {e}")
 
-    raise Exception(f"All PDF processing methods failed for {file_name}")
+        try:
+            loader = PyPDFLoader(file_path)
+            documents = loader.load()
+            if documents:
+                print(f"Loaded {file_name} using PyPDFLoader")
+                return documents
+        except Exception as e:
+            print(f"PyPDFLoader failed for {file_name}: {e}")
+
+        raise Exception(f"All PDF processing methods failed for {file_name}")
+    
+    else:
+        raise Exception(f"Unsupported file format: {file_ext}. Supported formats: .pdf, .csv, .xlsx, .xls")
 
 def setup_vectorstore(documents):
     if not documents:
@@ -169,8 +225,8 @@ def setup_vectorstore(documents):
 
     text_splitter = CharacterTextSplitter(
         separator='\n',
-        chunk_size=800,
-        chunk_overlap=100,
+        chunk_size=1000,
+        chunk_overlap=200,
         length_function=len
     )
 
@@ -196,9 +252,16 @@ def setup_vectorstore(documents):
 def create_chain(vectorstore):
     llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
+    # Optimal K value for ALL queries - balanced between coverage and noise
+    # Higher K = more context but potential noise
+    # Lower K = precise but might miss information
     retriever = vectorstore.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": 5}
+        search_type="mmr",
+        search_kwargs={
+            "k": 10,           # Retrieve 10 most relevant diverse documents for ALL queries
+            "fetch_k": 25,     # Consider 25 candidates for MMR selection
+            "lambda_mult": 0.5 # Balance relevance vs diversity
+        }
     )
 
     memory = ConversationBufferMemory(
@@ -241,9 +304,13 @@ def list_firebase_files():
     try:
         blobs = bucket.list_blobs(prefix="documents/")
         files_info = []
+        
+        # Supported file extensions
+        supported_extensions = ('.pdf', '.csv', '.xlsx', '.xls')
 
         for blob in blobs:
-            if blob.name.lower().endswith('.pdf'):
+            # Check if file has a supported extension
+            if blob.name.lower().endswith(supported_extensions):
                 files_info.append({
                     'name': blob.name.replace('documents/', ''),
                     'size': blob.size or 0,
@@ -265,7 +332,9 @@ def download_firebase_file(file_name: str):
         if not blob.exists():
             return None
 
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        # Get the original file extension to preserve it
+        file_ext = os.path.splitext(file_name)[1] or '.tmp'
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
         temp_file_path = temp_file.name
         temp_file.close()
 
@@ -296,11 +365,16 @@ def reload_all_documents():
                 documents = load_document(temp_file_path)
                 all_documents.extend(documents)
                 successful_loads += 1
+                print(f"✓ Successfully loaded {file_name} with {len(documents)} document(s)")
                 os.remove(temp_file_path)
             except Exception as e:
-                print(f"Failed to process {file_name}: {e}")
+                print(f"✗ Failed to process {file_name}: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 if os.path.exists(temp_file_path):
                     os.remove(temp_file_path)
+        else:
+            print(f"✗ Failed to download {file_name} from Firebase")
 
     if all_documents:
         print(f"Total documents loaded: {len(all_documents)}")
@@ -315,40 +389,63 @@ def reload_all_documents():
 # HELPER FUNCTIONS FOR SPECIFIC QUERIES
 # =============================================================================
 def detect_query_type(message: str):
-    """Detect if user is asking for doctors, departments, or both."""
+    """Detect if user is asking for COMPLETE doctors/departments list ONLY.
+    Returns None for specific questions that need RAG processing."""
     message_lower = message.lower().strip()
     
-    # Doctor patterns - more comprehensive
-    doctor_patterns = ['doctor', 'doc', 'physician', 'specialist', 'dr.', 'dr ', 'doctors list', 'all doctors']
-    # Department patterns - more comprehensive
-    dept_patterns = ['department', 'dept', 'division', 'unit', 'departments list', 'all departments']
+    # IMPORTANT: Check for specific questions first - these should use RAG, not bypass it
+    specific_question_indicators = [
+        'blood bank', 'cardiology', 'neurology', 'orthopedic', 'pediatric', 'radiology',
+        'surgery', 'emergency', 'oncology', 'gynecology', 'dermatology', 'diabetology',
+        'psychiatry', 'nephrology', 'urology', 'gastroenterology', 'pulmonology',
+        'do you have', 'is there', 'does', 'can i', 'how do', 'when', 'where', 'why',
+        'what is', 'what are the', 'tell me about', 'information about', 'details about',
+        'who is', 'which doctor', 'specific', 'particular', 'specializes in', 'expert in'
+    ]
     
-    has_doctor = any(pattern in message_lower for pattern in doctor_patterns)
-    has_dept = any(pattern in message_lower for pattern in dept_patterns)
+    # If it's a specific question about a department or specialty, use RAG
+    if any(indicator in message_lower for indicator in specific_question_indicators):
+        return None  # Let RAG handle specific questions
     
-    # Check for list/show requests - more comprehensive patterns
-    list_keywords = ['list', 'show', 'all', 'available', 'what are', 'tell me', 'give me', 'display']
-    is_list_request = any(word in message_lower for word in list_keywords)
+    # Only proceed if it's a GENERAL list request
+    # Very specific patterns for complete list requests
+    complete_list_patterns = [
+        # Exact matches only
+        message_lower == 'doctors',
+        message_lower == 'doctor',
+        message_lower == 'docs',
+        message_lower == 'doc',
+        message_lower == 'departments',
+        message_lower == 'department',
+        message_lower == 'depts',
+        message_lower == 'dept',
+        # List requests without specifics
+        message_lower in ['list doctors', 'list all doctors', 'all doctors', 'doctors list', 
+                          'show doctors', 'show all doctors', 'give me doctors'],
+        message_lower in ['list departments', 'list all departments', 'all departments', 
+                          'departments list', 'show departments', 'show all departments', 
+                          'give me departments'],
+        # Combined requests
+        'doctors with their dept' in message_lower and len(message_lower) < 40,
+        'docs with their dept' in message_lower and len(message_lower) < 40,
+    ]
     
-    # Also check for direct requests like "doctors", "departments", "docs list"
-    direct_doctor_request = (
-        message_lower in ['doctors', 'doctor', 'docs', 'doc', 'all doctors', 'doctors list', 'list doctors'] or
-        message_lower.startswith(('list of doctor', 'list doctor', 'show doctor', 'all doctor'))
-    )
+    # Check if it's a complete list request
+    is_complete_list = any(complete_list_patterns)
     
-    direct_dept_request = (
-        message_lower in ['departments', 'department', 'depts', 'dept', 'all departments', 'departments list', 'list departments'] or
-        message_lower.startswith(('list of department', 'list department', 'show department', 'all department'))
-    )
+    if not is_complete_list:
+        return None  # Use RAG for anything else
     
-    # Determine what to return
-    if (is_list_request or direct_doctor_request or direct_dept_request):
-        if (has_doctor and has_dept) or (direct_doctor_request and direct_dept_request):
-            return 'both'
-        elif has_doctor or direct_doctor_request:
-            return 'doctors'
-        elif has_dept or direct_dept_request:
-            return 'departments'
+    # Determine type only for complete list requests
+    if 'doctors with their dept' in message_lower or 'docs with their dept' in message_lower:
+        return 'doctors'
+    elif any(word in message_lower for word in ['doctors', 'doctor', 'docs', 'doc']) and \
+         any(word in message_lower for word in ['departments', 'department']):
+        return 'separate'
+    elif any(word in message_lower for word in ['doctors', 'doctor', 'docs', 'doc']):
+        return 'doctors'
+    elif any(word in message_lower for word in ['departments', 'department', 'depts', 'dept']):
+        return 'departments'
     
     return None
 
@@ -358,8 +455,11 @@ def get_doctors_list():
         return None
     
     try:
-        # Query the vectorstore for doctor information
-        retriever = vectorstore.as_retriever(search_kwargs={'k': 10})
+        # Use the same retriever configuration as main chain for consistency
+        retriever = vectorstore.as_retriever(
+            search_type="mmr",
+            search_kwargs={'k': 10, 'fetch_k': 25, 'lambda_mult': 0.5}
+        )
         docs = retriever.invoke("list all doctors and their specialties")
         
         # Extract doctor information from the retrieved documents
@@ -367,16 +467,21 @@ def get_doctors_list():
         
         # Use LLM to extract just doctor names and specialties
         llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
-        prompt = f"""Based on the following context, list ONLY the doctor names and their specialties.
-Format: Dr. Name - Specialty
+        prompt = f"""Based on the following context, list ONLY the doctor names with their specialties/departments on the SAME line.
 
-Do not add any introductory text, notes, or additional information.
-Just list the doctors in a numbered format.
+Format each entry as: Dr. Name - Specialty/Department
+
+Important rules:
+- Each doctor's specialty MUST be on the same line as their name
+- Use format: "Dr. Name - Specialty" (all on one line)
+- Do not add any introductory text, notes, or additional information
+- Do not add phrases like "may not be exhaustive" or disclaimers
+- Just list the doctors in a numbered format
 
 Context:
 {context}
 
-Doctors list:"""
+Doctors:"""
         
         response = llm.invoke(prompt)
         return response.content
@@ -390,8 +495,11 @@ def get_departments_list():
         return None
     
     try:
-        # Query the vectorstore for department information
-        retriever = vectorstore.as_retriever(search_kwargs={'k': 8})
+        # Use the same retriever configuration as main chain for consistency
+        retriever = vectorstore.as_retriever(
+            search_type="mmr",
+            search_kwargs={'k': 10, 'fetch_k': 25, 'lambda_mult': 0.5}
+        )
         docs = retriever.invoke("list all hospital departments")
         
         # Extract department information from the retrieved documents
@@ -440,7 +548,7 @@ async def chat(message: ChatMessage):
                 departments = get_departments_list()
                 if departments:
                     answer = departments
-            elif query_type == 'both':
+            elif query_type == 'separate':
                 doctors = get_doctors_list()
                 departments = get_departments_list()
                 if doctors and departments:
@@ -820,10 +928,18 @@ async def root():
 
 @app.post("/upload-document")
 async def upload_document(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+    # Check if file format is supported
+    allowed_extensions = ['.pdf', '.csv', '.xlsx', '.xls']
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}"
+        )
 
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+    # Use the original file extension for temp file
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
     temp_file_path = temp_file.name
 
     try:

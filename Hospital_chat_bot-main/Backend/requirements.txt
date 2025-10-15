@@ -30,3 +30,8 @@ unstructured
 sentence-transformers
 huggingface-hub
 pdfminer.six
+
+# Excel and CSV Support
+pandas
+openpyxl
+xlrd

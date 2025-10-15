@@ -1722,13 +1722,13 @@ const App = () => {
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <Icons.FileUpload />
-                  <p style={styles.uploadText}>Drag & Drop PDF or Click to Browse</p>
+                  <p style={styles.uploadText}>Drag & Drop PDF, Excel, or CSV files or Click to Browse</p>
                 </div>
 
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf"
+                  accept=".pdf,.csv,.xlsx,.xls"
                   onChange={handleFileSelect}
                   style={styles.fileInput}
                 />
