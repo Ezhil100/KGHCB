@@ -312,6 +312,111 @@ def reload_all_documents():
     return False, "No documents could be processed"
 
 # =============================================================================
+# HELPER FUNCTIONS FOR SPECIFIC QUERIES
+# =============================================================================
+def detect_query_type(message: str):
+    """Detect if user is asking for doctors, departments, or both."""
+    message_lower = message.lower().strip()
+    
+    # Doctor patterns - more comprehensive
+    doctor_patterns = ['doctor', 'doc', 'physician', 'specialist', 'dr.', 'dr ', 'doctors list', 'all doctors']
+    # Department patterns - more comprehensive
+    dept_patterns = ['department', 'dept', 'division', 'unit', 'departments list', 'all departments']
+    
+    has_doctor = any(pattern in message_lower for pattern in doctor_patterns)
+    has_dept = any(pattern in message_lower for pattern in dept_patterns)
+    
+    # Check for list/show requests - more comprehensive patterns
+    list_keywords = ['list', 'show', 'all', 'available', 'what are', 'tell me', 'give me', 'display']
+    is_list_request = any(word in message_lower for word in list_keywords)
+    
+    # Also check for direct requests like "doctors", "departments", "docs list"
+    direct_doctor_request = (
+        message_lower in ['doctors', 'doctor', 'docs', 'doc', 'all doctors', 'doctors list', 'list doctors'] or
+        message_lower.startswith(('list of doctor', 'list doctor', 'show doctor', 'all doctor'))
+    )
+    
+    direct_dept_request = (
+        message_lower in ['departments', 'department', 'depts', 'dept', 'all departments', 'departments list', 'list departments'] or
+        message_lower.startswith(('list of department', 'list department', 'show department', 'all department'))
+    )
+    
+    # Determine what to return
+    if (is_list_request or direct_doctor_request or direct_dept_request):
+        if (has_doctor and has_dept) or (direct_doctor_request and direct_dept_request):
+            return 'both'
+        elif has_doctor or direct_doctor_request:
+            return 'doctors'
+        elif has_dept or direct_dept_request:
+            return 'departments'
+    
+    return None
+
+def get_doctors_list():
+    """Return a formatted list of doctors with their specialties."""
+    if not conversation_chain or not vectorstore:
+        return None
+    
+    try:
+        # Query the vectorstore for doctor information
+        retriever = vectorstore.as_retriever(search_kwargs={'k': 10})
+        docs = retriever.invoke("list all doctors and their specialties")
+        
+        # Extract doctor information from the retrieved documents
+        context = "\n\n".join([doc.page_content for doc in docs])
+        
+        # Use LLM to extract just doctor names and specialties
+        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+        prompt = f"""Based on the following context, list ONLY the doctor names and their specialties.
+Format: Dr. Name - Specialty
+
+Do not add any introductory text, notes, or additional information.
+Just list the doctors in a numbered format.
+
+Context:
+{context}
+
+Doctors list:"""
+        
+        response = llm.invoke(prompt)
+        return response.content
+    except Exception as e:
+        print(f"Error getting doctors list: {e}")
+        return None
+
+def get_departments_list():
+    """Return a formatted list of departments."""
+    if not conversation_chain or not vectorstore:
+        return None
+    
+    try:
+        # Query the vectorstore for department information
+        retriever = vectorstore.as_retriever(search_kwargs={'k': 8})
+        docs = retriever.invoke("list all hospital departments")
+        
+        # Extract department information from the retrieved documents
+        context = "\n\n".join([doc.page_content for doc in docs])
+        
+        # Use LLM to extract just department names
+        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+        prompt = f"""Based on the following context, list ONLY the department names.
+
+Do not add any introductory text, notes, explanations, or additional information.
+Do not add phrases like "may not be exhaustive" or "additional departments not listed".
+Just list the departments in a numbered format.
+
+Context:
+{context}
+
+Departments:"""
+        
+        response = llm.invoke(prompt)
+        return response.content
+    except Exception as e:
+        print(f"Error getting departments list: {e}")
+        return None
+
+# =============================================================================
 # CHAT ENDPOINT WITH FORMATTED OUTPUT
 # =============================================================================
 @app.post("/chat", response_model=ChatResponse)
@@ -321,6 +426,43 @@ async def chat(message: ChatMessage):
 
     try:
         print(f"Chat request ({message.user_role}): {message.message}")
+        
+        # Check if this is a specific doctors/departments list request
+        query_type = detect_query_type(message.message)
+        
+        if query_type:
+            answer = ""
+            if query_type == 'doctors':
+                doctors = get_doctors_list()
+                if doctors:
+                    answer = doctors
+            elif query_type == 'departments':
+                departments = get_departments_list()
+                if departments:
+                    answer = departments
+            elif query_type == 'both':
+                doctors = get_doctors_list()
+                departments = get_departments_list()
+                if doctors and departments:
+                    answer = f"**Doctors:**\n\n{doctors}\n\n**Departments:**\n\n{departments}"
+                elif doctors:
+                    answer = doctors
+                elif departments:
+                    answer = departments
+            
+            # If we got a specific answer, format and return it
+            if answer:
+                formatted_answer = format_response_text(answer)
+                formatted_answer = add_actionable_elements(formatted_answer)
+                
+                return ChatResponse(
+                    response=formatted_answer,
+                    timestamp=datetime.now().isoformat(),
+                    is_appointment_request=False,
+                    appointment_id=None
+                )
+        
+        # Continue with normal RAG processing for other queries
 
         if conversation_chain:
             response = conversation_chain.invoke({'question': message.message})
@@ -338,6 +480,8 @@ async def chat(message: ChatMessage):
                 - Hospital amenities and services
                 
                 Format your answers using natural sentences and organize information clearly.
+                Only mention limitations or add notes when you genuinely don't have specific information or when the data is incomplete.
+                Do NOT add cautionary notes like "may not be exhaustive" or "additional items not listed" when you have provided a complete answer.
                 If information is unavailable, kindly suggest the visitor reach the hospital's help desk for more information.""",
 
                 "staff": """You are a helpful KG Hospital AI assistant helping hospital staff.
@@ -349,6 +493,8 @@ async def chat(message: ChatMessage):
                 - Hospital policies and guidelines
                 
                 Format your answers using clear sentences and organize information logically.
+                Only add notes about data limitations when you are genuinely uncertain or missing critical information.
+                Do NOT add unnecessary disclaimers like "may not be exhaustive" when you have provided complete information from the context.
                 If details are unavailable, politely mention that the staff can consult the hospital administration for accurate information.""",
 
                 "admin": """You are a helpful KG Hospital AI assistant helping administrators.
@@ -360,6 +506,8 @@ async def chat(message: ChatMessage):
                 - Staff coordination and policies
                 
                 Format your output using clear paragraphs and organize information systematically.
+                Only include notes about data limitations when the information is genuinely incomplete or uncertain.
+                Avoid adding generic disclaimers when you have provided a complete answer from the available context.
                 If certain data is not accessible, inform that the admin team can review internal records or contact support for help."""
             }
 
@@ -652,12 +800,8 @@ def add_actionable_elements(text: str) -> str:
     emergency_pattern = r'(emergency|ambulance|helpline)[\s:]+(\+?\d[\d\s-]+)'
     text = re.sub(emergency_pattern, r'\1: [EMERGENCY:\2]', text, flags=re.IGNORECASE)
     
-    # Add markers for department names (for contact info)
-    departments = ['Cardiology', 'Neurology', 'Orthopedics', 'Pediatrics', 'Radiology', 
-                   'Emergency', 'ICU', 'Surgery', 'Oncology', 'Gynecology']
-    for dept in departments:
-        if dept in text:
-            text = text.replace(dept, f'[DEPARTMENT:{dept}]')
+    # Department markers disabled to avoid partial matches (e.g., "Surgery" in "Robotic Surgery")
+    # Departments will display as plain text without clickable elements
     
     return text
 

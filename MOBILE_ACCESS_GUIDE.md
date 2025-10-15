@@ -2,7 +2,7 @@
 
 ## 🌐 Your Network Information
 
-- **Your Computer's IP Address**: `192.168.137.154`
+- **Your Computer's IP Address**: `172.20.10.5`
 - **Backend Port**: `8000`
 - **Frontend Port**: `5173`
 
@@ -10,8 +10,8 @@
 
 Once servers are running, access from your mobile device using:
 
-- **Frontend (Chat Interface)**: `http://192.168.137.154:5173`
-- **Backend API**: `http://192.168.137.154:8000`
+- **Frontend (Chat Interface)**: `http://172.20.10.5:5173`
+- **Backend API**: `http://172.20.10.5:8000`
 
 ---
 
@@ -32,7 +32,7 @@ const API_BASE_URL = "http://localhost:8000";
 **To:**
 
 ```javascript
-const API_BASE_URL = "http://192.168.137.154:8000";
+const API_BASE_URL = "http://172.20.10.5:8000";
 ```
 
 ### Step 2: Start Backend Server
@@ -72,7 +72,7 @@ npm run dev
   VITE v5.x.x  ready in xxx ms
 
   ➜  Local:   http://localhost:5173/
-  ➜  Network: http://192.168.137.154:5173/
+  ➜  Network: http://172.20.10.5:5173/
   ➜  press h + enter to show help
 ```
 
@@ -80,7 +80,7 @@ npm run dev
 
 1. **Ensure your mobile device is on the SAME WiFi network** as your computer
 2. Open your mobile browser (Chrome, Safari, etc.)
-3. Go to: `http://192.168.137.154:5173`
+3. Go to: `http://172.20.10.5:5173`
 
 ---
 
@@ -132,11 +132,11 @@ New-NetFirewallRule -DisplayName "Hospital Chatbot Frontend" -Direction Inbound 
 
 2. **Check if servers are running:**
 
-   - Backend: Open `http://192.168.137.154:8000/docs` on your computer
-   - Frontend: Open `http://192.168.137.154:5173` on your computer
+   - Backend: Open `http://172.20.10.5:8000/docs` on your computer
+   - Frontend: Open `http://172.20.10.5:5173` on your computer
 
 3. **Test network connectivity:**
-   From your mobile browser, try: `http://192.168.137.154:8000/health`
+   From your mobile browser, try: `http://172.20.10.5:8000/health`
 
 4. **Disable Windows Firewall temporarily:**
    - If it works with firewall off, then add firewall rules (see above)
@@ -176,13 +176,13 @@ ipconfig | findstr /i "IPv4"
 ### Test Backend (on computer):
 
 ```
-http://192.168.137.154:8000/docs
+http://172.20.10.5:8000/docs
 ```
 
 ### Access from Mobile:
 
 ```
-http://192.168.137.154:5173
+http://172.20.10.5:5173
 ```
 
 ---
@@ -218,12 +218,12 @@ For more stable access, consider:
 
 Before testing on mobile:
 
-- [ ] Updated `API_BASE_URL` in `App.jsx` to `http://192.168.137.154:8000`
+- [ ] Updated `API_BASE_URL` in `App.jsx` to `http://172.20.10.5:8000`
 - [ ] Vite config has `host: '0.0.0.0'` (already configured)
 - [ ] Backend running with `--host 0.0.0.0`
 - [ ] Frontend running with `npm run dev`
 - [ ] Firewall rules added for ports 8000 and 5173
 - [ ] Mobile device on same WiFi network
-- [ ] Backend accessible: `http://192.168.137.154:8000/docs` works on computer
-- [ ] Frontend accessible: `http://192.168.137.154:5173` works on computer
+- [ ] Backend accessible: `http://172.20.10.5:8000/docs` works on computer
+- [ ] Frontend accessible: `http://172.20.10.5:5173` works on computer
 - [ ] Ready to test on mobile!

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-const API_BASE_URL = 'http://192.168.137.154:8000'; // For mobile access on WiFi
+const API_BASE_URL = 'http://172.20.10.5:8000'; // For mobile access on WiFi
 
 // Time formatting helpers (no seconds)
 const formatTime = (date) => {
@@ -337,14 +337,14 @@ const processActionableText = (text) => {
         parts.push(
           <span key={key} style={{
             color: '#1F3A9E',
-            fontWeight: '600',
+            fontWeight: '400',
             padding: '2px 8px',
             background: '#e8f1ff',
             borderRadius: '6px',
             cursor: 'pointer',
             display: 'inline-block'
           }} title="Hospital Department">
-            🏥 {match.content}
+            {match.content}
           </span>
         );
         break;
@@ -382,7 +382,32 @@ const FormattedMessage = ({ content }) => {
     // First process actionable elements
     let processed = processActionableText(text);
     
-    // Then handle bold markdown
+    // If processActionableText returned an array (with React elements), handle bold within text parts
+    if (Array.isArray(processed)) {
+      const result = [];
+      processed.forEach((part, idx) => {
+        if (typeof part === 'string') {
+          // Process bold markdown in string parts
+          const out = [];
+          let last = 0;
+          const regex = /\*\*(.+?)\*\*/g;
+          let m;
+          while ((m = regex.exec(part)) !== null) {
+            if (m.index > last) out.push(part.slice(last, m.index));
+            out.push(<strong key={`b-${idx}-${out.length}`} style={{ color: '#1F3A9E' }}>{m[1]}</strong>);
+            last = regex.lastIndex;
+          }
+          if (last < part.length) out.push(part.slice(last));
+          result.push(...out);
+        } else {
+          // Keep React elements as-is
+          result.push(part);
+        }
+      });
+      return result.length > 0 ? result : processed;
+    }
+    
+    // Handle bold markdown for plain strings
     if (typeof processed === 'string') {
       const out = [];
       let last = 0;
@@ -460,10 +485,13 @@ const FormattedMessage = ({ content }) => {
         if (/^\d+\.\s/.test(trimmedLine)) {
           const match = trimmedLine.match(/^(\d+\.\s*)(.+)/);
           const number = match ? match[1] : '';
-          const content = match ? match[2] : trimmedLine;
+          let content = match ? match[2] : trimmedLine;
+          
+          // IMPORTANT: Process actionable elements FIRST before any other formatting
+          content = renderInline(content);
           
           // If the entire content is wrapped in **bold**, treat it as a header (category title)
-          if (/^\*\*(.+)\*\*$/.test(content)) {
+          if (typeof content === 'string' && /^\*\*(.+)\*\*$/.test(content)) {
             const headerText = content.replace(/^\*\*(.+)\*\$/, '**$1**');
             return (
               <div key={index} style={{ 
@@ -476,6 +504,35 @@ const FormattedMessage = ({ content }) => {
                 paddingBottom: '6px'
               }}>
                 {headerText.slice(2, -2)}
+              </div>
+            );
+          }
+
+          // If content is already processed (array of React elements), just render it
+          if (Array.isArray(content)) {
+            return (
+              <div key={index} style={{ 
+                marginLeft: '12px', 
+                marginBottom: '8px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px',
+                padding: '6px 0'
+              }}>
+                <span style={{ 
+                  color: '#FF8C00', 
+                  fontWeight: '700',
+                  fontSize: '15px',
+                  minWidth: '24px',
+                  textAlign: 'right'
+                }}>{number.trim()}</span>
+                <span style={{ 
+                  flex: 1, 
+                  lineHeight: '1.6',
+                  fontSize: '15px'
+                }}>
+                  {content}
+                </span>
               </div>
             );
           }
@@ -536,10 +593,7 @@ const FormattedMessage = ({ content }) => {
               }
             }
           }
-          // Apply inline bold if still plain text
-          if (typeof formattedContent === 'string') {
-            formattedContent = renderInline(formattedContent);
-          }
+          // Note: renderInline already called at the beginning of numbered list handling
           
           return (
             <div key={index} style={{ 
@@ -900,28 +954,27 @@ const App = () => {
     }
   };
 
+  // Helper function to create message with unique ID
+  const createMessage = (type, content) => ({
+    type,
+    content,
+    timestamp: formatTime(new Date()),
+    id: `msg-${Date.now()}-${Math.random()}`
+  });
+
   const handleRoleSelection = (role) => {
     setUserRole(role);
     setShowRoleSelector(false);
     // generate a simple client-side user id
     const genId = `uid-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
     setUserId(genId);
-    setMessages([{
-      type: 'bot',
-      content: `Welcome! You are accessing as a ${role}. How can I help you today?`,
-      timestamp: formatTime(new Date())
-    }]);
+    setMessages([createMessage('bot', `Welcome! You are accessing as a ${role}. How can I help you today?`)]);
   };
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || isTyping) return;
 
-    const userMsg = {
-      type: 'user',
-      content: inputMessage,
-      timestamp: formatTime(new Date())
-    };
-    
+    const userMsg = createMessage('user', inputMessage);
     setMessages(prev => [...prev, userMsg]);
     setMessageCount(prev => prev + 1);
     
@@ -1036,11 +1089,7 @@ const App = () => {
       
       // Normal chat flow
       const response = await api.sendMessage(currentInput, userRole);
-      const botMsg = {
-        type: 'bot',
-        content: response.response || 'No response generated.',
-        timestamp: formatTime(new Date())
-      };
+      const botMsg = createMessage('bot', response.response || 'No response generated.');
       setMessages(prev => [...prev, botMsg]);
       
       if (response.is_appointment_request) {
@@ -1446,10 +1495,10 @@ const App = () => {
 
         <div style={styles.chatMessages}>
           {messages.map((message, index) => (
-            <div key={index} style={{...styles.message, ...(message.type === 'user' ? styles.messageUser : styles.messageBot)}}>
+            <div key={message.id || `msg-${index}-${message.timestamp}`} style={{...styles.message, ...(message.type === 'user' ? styles.messageUser : styles.messageBot)}}>
               <div style={styles.messageContent}>
                 {typeof message.content === 'string' ? (
-                  <FormattedMessage content={message.content} />
+                  <FormattedMessage key={`fmt-${message.id || index}`} content={message.content} />
                 ) : (
                   message.content
                 )}
