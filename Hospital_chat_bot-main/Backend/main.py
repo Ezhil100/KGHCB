@@ -532,10 +532,114 @@ def add_actionable_elements(text: str) -> str:
     phone_pattern = r'(\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9})'
     text = re.sub(phone_pattern, r'[TEL:\1]', text)
     
-    # Add markers for doctor names followed by specialization (for profile links)
-    # Pattern: "Dr. Name" or "Doctor Name" or just names in doctor lists
-    doctor_pattern = r'((?:Dr\.?|Doctor)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)'
-    text = re.sub(doctor_pattern, r'[DOCTOR:\1]', text)
+    # Map of specialties to URL-friendly slugs
+    specialty_map = {
+        'cardiologist': 'cardiologist',
+        'cardiology': 'cardiologist',
+        'neurologist': 'neurologist',
+        'neurology': 'neurologist',
+        'orthopedic': 'orthopedic-surgeon',
+        'orthopedics': 'orthopedic-surgeon',
+        'pediatrician': 'pediatrician',
+        'pediatrics': 'pediatrician',
+        'radiologist': 'radiologist',
+        'radiology': 'radiologist',
+        'general surgeon': 'general-surgeon',
+        'surgery': 'general-surgeon',
+        'surgeon': 'general-surgeon',
+        'oncologist': 'oncologist',
+        'oncology': 'oncologist',
+        'gynecologist': 'gynecologist',
+        'gynecology': 'gynecologist',
+        'dermatologist': 'dermatologist',
+        'dermatology': 'dermatologist',
+        'ent': 'ent-specialist',
+        'ent specialist': 'ent-specialist',
+        'ophthalmologist': 'ophthalmologist',
+        'ophthalmology': 'ophthalmologist',
+        'psychiatrist': 'psychiatrist',
+        'psychiatry': 'psychiatrist',
+        'urologist': 'urologist',
+        'urology': 'urologist',
+        'gastroenterologist': 'gastroenterologist',
+        'gastroenterology': 'gastroenterologist',
+        'pulmonologist': 'pulmonologist',
+        'pulmonology': 'pulmonologist',
+        'endocrinologist': 'endocrinologist',
+        'endocrinology': 'endocrinologist',
+        'nephrologist': 'nephrologist',
+        'nephrology': 'nephrologist',
+        'anesthesiologist': 'anesthesiologist',
+        'anesthesiology': 'anesthesiologist'
+    }
+    
+    # Pattern to detect doctor with specialty context
+    # Look for patterns like:
+    # "Dr. Name (Specialty)" or "Dr. Name - Specialty" or "Dr. Name, Specialty"
+    # or context from previous line mentioning specialty
+    
+    lines = text.split('\n')
+    processed_lines = []
+    current_specialty = None
+    
+    for line in lines:
+        # Check if line mentions a specialty (for context)
+        line_lower = line.lower()
+        for specialty_key in specialty_map.keys():
+            if specialty_key in line_lower:
+                current_specialty = specialty_map[specialty_key]
+                break
+        
+        # Enhanced Pattern to handle:
+        # - "Dr. John Smith" (standard)
+        # - "Dr. ARUN KUMAR U" (all caps with initial)
+        # - "Dr. Balakrishnan .M" (name with suffix initial)
+        # - "Dr. ASHNA ANN EAPEN" (all caps multi-word)
+        # - "Dr. Kumudhini .D" (name with dot-initial suffix)
+        # Pattern: Dr./Doctor + name + optional suffix (space + dot + letter OR space + letter)
+        doctor_pattern = r'((?:Dr\.?|Doctor)\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)(?:\s+\.?([A-Z]))?)(?=\s*(?:\(|,|-|$|\n|;|:))'
+        
+        def replace_doctor(match):
+            full_match = match.group(0).strip()  # Full match including suffix
+            doctor_name = match.group(2).strip()  # Main name part
+            suffix = match.group(3) if match.group(3) else ''  # Suffix initial (if any)
+            
+            # Try to find specialty from current context
+            specialty_slug = current_specialty
+            
+            # Convert doctor name to URL format
+            # Build the complete name including suffix for URL
+            complete_name = doctor_name
+            if suffix:
+                complete_name = f"{doctor_name} {suffix}"
+            
+            # Convert to slug: "ARUN KUMAR U" -> "arun-kumar-u"
+            name_slug = complete_name.lower()
+            name_slug = re.sub(r'\s+', '-', name_slug)  # spaces -> hyphens
+            name_slug = re.sub(r'-+', '-', name_slug)  # multiple hyphens -> single
+            name_slug = name_slug.strip('-')  # remove leading/trailing hyphens
+            name_slug = f"dr-{name_slug}"
+            
+            if specialty_slug:
+                # Format: [DOCTORPROFILE:Dr. Name Suffix|specialty-slug|dr-name-slug]
+                return f'[DOCTORPROFILE:{full_match}|{specialty_slug}|{name_slug}]'
+            else:
+                # No specialty found, just return the name as-is
+                return full_match
+        
+        # Replace doctor names in the line
+        processed_line = re.sub(doctor_pattern, replace_doctor, line)
+        processed_lines.append(processed_line)
+    
+    text = '\n'.join(processed_lines)
+    
+    # Check if this is a doctor listing (contains multiple doctor profile markers)
+    doctor_profile_count = text.count('[DOCTORPROFILE:')
+    
+    # If listing multiple doctors (3 or more), also add a link to complete doctors list at the end
+    if doctor_profile_count >= 3:
+        if not '[DOCTORSLIST:' in text:
+            text += '\n\n[DOCTORSLIST:For complete doctors list, visit our website]'
     
     # Add markers for hospital address/location
     location_keywords = ['KG Hospital', 'hospital address', 'hospital location', 'No. 5, Arts College Road', 'Coimbatore']

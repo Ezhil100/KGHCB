@@ -163,6 +163,8 @@ const processActionableText = (text) => {
   const patterns = [
     { regex: /\[TEL:([\d\s\-\+\(\)]+)\]/g, type: 'phone' },
     { regex: /\[DOCTOR:([^\]]+)\]/g, type: 'doctor' },
+    { regex: /\[DOCTORPROFILE:([^\|]+)\|([^\|]+)\|([^\]]+)\]/g, type: 'doctorprofile' },
+    { regex: /\[DOCTORSLIST:([^\]]+)\]/g, type: 'doctorslist' },
     { regex: /\[LOCATION:([^\]]+)\]/g, type: 'location' },
     { regex: /\[EMERGENCY:([\d\s\-\+]+)\]/g, type: 'emergency' },
     { regex: /\[DEPARTMENT:([^\]]+)\]/g, type: 'department' }
@@ -174,7 +176,19 @@ const processActionableText = (text) => {
     let match;
     const regexCopy = new RegExp(regex.source, regex.flags);
     while ((match = regexCopy.exec(text)) !== null) {
-      allMatches.push({ index: match.index, length: match[0].length, content: match[1], type });
+      // For doctorprofile, capture all three groups: name, specialty, slug
+      if (type === 'doctorprofile') {
+        allMatches.push({ 
+          index: match.index, 
+          length: match[0].length, 
+          content: match[1], 
+          specialty: match[2],
+          slug: match[3],
+          type 
+        });
+      } else {
+        allMatches.push({ index: match.index, length: match[0].length, content: match[1], type });
+      }
     }
   });
   
@@ -205,9 +219,57 @@ const processActionableText = (text) => {
           </a>
         );
         break;
+      case 'doctorprofile':
+        // Build URL: https://www.kghospital.com/doctors/{specialty}/{dr-name}
+        const doctorProfileUrl = `https://www.kghospital.com/doctors/${match.specialty}/${match.slug}`;
+        parts.push(
+          <span key={key} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span>{match.content}</span>
+            <a 
+              href={doctorProfileUrl} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '18px',
+                height: '18px',
+                textDecoration: 'none',
+                transition: 'all 0.3s',
+                cursor: 'pointer',
+                opacity: 0.7
+              }}
+              title="View doctor profile"
+              onMouseOver={(e) => {
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.transform = 'scale(1.15)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.opacity = '0.7';
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+            >
+              <svg 
+                viewBox="0 0 24 24" 
+                width="18" 
+                height="18" 
+                fill="none" 
+                stroke="#2E4AC7" 
+                strokeWidth="2.5" 
+                strokeLinecap="round" 
+                strokeLinejoin="round"
+              >
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+            </a>
+          </span>
+        );
+        break;
       case 'doctor':
         const doctorName = match.content.replace(/^(Dr\.?\s*|Doctor\s*)/, '');
-        const profileUrl = `https://www.kghospital.com/doctors`;
+        const profileUrl = `https://www.kghospital.com/doctors-list`;
         parts.push(
           <a key={key} href={profileUrl} target="_blank" rel="noopener noreferrer" style={{
             color: '#1F3A9E',
@@ -248,6 +310,26 @@ const processActionableText = (text) => {
             display: 'inline-block'
           }} title="Emergency - Click to call">
             🚨 {match.content}
+          </a>
+        );
+        break;
+      case 'doctorslist':
+        const doctorsListUrl = `https://www.kghospital.com/doctors-list`;
+        parts.push(
+          <a key={key} href={doctorsListUrl} target="_blank" rel="noopener noreferrer" style={{
+            color: '#1F3A9E',
+            fontWeight: '700',
+            textDecoration: 'none',
+            padding: '8px 16px',
+            background: 'linear-gradient(135deg, #e8f1ff 0%, #d1e4ff 100%)',
+            border: '2px solid #1F3A9E',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            display: 'inline-block',
+            marginTop: '8px',
+            transition: 'all 0.3s'
+          }} title="View complete doctors list">
+            👨‍⚕️ {match.content} →
           </a>
         );
         break;
