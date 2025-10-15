@@ -1,0 +1,32 @@
+# FastAPI and Web Framework
+fastapi
+uvicorn[standard]
+python-multipart
+gunicorn
+
+# Authentication
+PyJWT
+python-dotenv
+pydantic
+
+# Firebase Integration
+firebase-admin
+
+# LangChain and AI - COMPATIBLE VERSIONS
+langchain
+langchain-community
+langchain-groq
+langchain-core
+
+# Vector Store andmbeddings
+faiss-cpu
+sentence-transformers
+
+# Document Processing
+pypdf2
+requests
+pypdf
+unstructured
+sentence-transformers
+huggingface-hub
+pdfminer.six
