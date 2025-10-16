@@ -1733,15 +1733,9 @@ const App = () => {
             disabled={!inputMessage.trim() || isTyping}
           >
             {isTyping ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={styles.loadingSpinner}></div>
-                Sending...
-              </div>
+              <div style={styles.loadingSpinner}></div>
             ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Icons.Send />
-                Send
-              </div>
+              <Icons.Send />
             )}
           </button>
         </div>
@@ -2378,40 +2372,46 @@ const styles = {
   },
   chatInput: {
     display: 'flex',
-    gap: '10px',
-    padding: '12px',
-    background: 'white',
-    borderTop: '1px solid #e8f1ff'
+    gap: '12px',
+    padding: '20px 24px',
+    background: '#f7fafc',
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   messageInput: {
-    flex: 1,
-    padding: '12px 14px',
-    border: '2px solid #d1e4ff',
-    borderRadius: '12px',
-    fontSize: 'clamp(14px, 3.5vw, 15px)',
+    flex: 'none',
+    width: '1000px',
+    maxWidth: '90%',
+    padding: '14px 22px',
+    border: '1px solid #d0d0d0',
+    borderRadius: '30px',
+    fontSize: 'clamp(15px, 3.5vw, 16px)',
     resize: 'none',
     outline: 'none',
     fontFamily: 'inherit',
-    maxHeight: '100px',
+    maxHeight: '120px',
     transition: 'border-color 0.3s',
-    background: 'linear-gradient(135deg, #fafcff 0%, #f8fafe 100%)',
-    minHeight: '44px'
+    background: '#f5f5f5',
+    minHeight: '50px'
   },
   sendButton: {
-    padding: '12px 16px',
+    padding: '14px 14px',
     background: 'linear-gradient(135deg, #FF8C00 0%, #FFA500 100%)',
     color: 'white',
     border: 'none',
-    borderRadius: '12px',
+    borderRadius: '50%',
     cursor: 'pointer',
-    fontSize: 'clamp(13px, 3.5vw, 15px)',
+    fontSize: '18px',
     fontWeight: 'bold',
     transition: 'all 0.3s',
     whiteSpace: 'nowrap',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: '80px'
+    minWidth: '52px',
+    minHeight: '52px',
+    width: '52px',
+    height: '52px'
   },
   sendButtonDisabled: {
     opacity: 0.5,
