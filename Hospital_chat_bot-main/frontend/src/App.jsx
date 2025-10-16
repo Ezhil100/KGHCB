@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
 const API_BASE_URL = 'http://localhost:8000'; // Local access only
 
@@ -799,6 +801,7 @@ const App = () => {
       reason: ''
     }
   });
+  const [selectedDate, setSelectedDate] = useState(null);
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -971,14 +974,95 @@ const App = () => {
     setMessages([createMessage('bot', `Welcome! You are accessing as a ${role}. How can I help you today?`)]);
   };
 
+  // Handle date selection from calendar
+  const handleDateSelect = (date) => {
+    if (!date || appointmentFlow.step !== 2) return;
+    
+    // Format date as user-friendly string
+    const formattedDate = date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    
+    // Add user message showing selected date
+    setMessages(prev => [...prev, {
+      type: 'user',
+      content: formattedDate,
+      timestamp: formatTime(new Date())
+    }]);
+    
+    // Update appointment flow with date
+    const newFlow = { ...appointmentFlow };
+    newFlow.data.date = formattedDate;
+    newFlow.step = 3;
+    setAppointmentFlow(newFlow);
+    
+    // Clear selected date
+    setSelectedDate(null);
+    
+    // Add bot response for time
+    setTimeout(() => {
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: 'What time would you prefer? (e.g., 10:00 AM, 2:30 PM)',
+        timestamp: formatTime(new Date())
+      }]);
+    }, 300);
+  };
+
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || isTyping) return;
+
+    const currentInput = inputMessage.trim();
+    
+    // Check if user is trying to book appointment (and not already in flow)
+    const appointmentTriggers = [
+      'book appointment',
+      'book an appointment', 
+      'make appointment',
+      'make an appointment',
+      'schedule appointment',
+      'schedule an appointment',
+      'i want to book appointment',
+      'i need appointment',
+      'need an appointment'
+    ];
+    
+    const isBookingRequest = appointmentTriggers.some(trigger => 
+      currentInput.toLowerCase().includes(trigger)
+    );
+    
+    if (isBookingRequest && !appointmentFlow.active) {
+      // Start appointment flow
+      setMessages(prev => [...prev, 
+        {
+          type: 'user',
+          content: currentInput,
+          timestamp: formatTime(new Date())
+        },
+        {
+          type: 'bot',
+          content: 'Great! Let\'s book your appointment.\n\nFirst, what\'s your name?',
+          timestamp: formatTime(new Date())
+        }
+      ]);
+      setAppointmentFlow({
+        active: true,
+        step: 0,
+        data: { name: '', phone: '', date: '', time: '', reason: '' }
+      });
+      setMessageCount(prev => prev + 1);
+      setInputMessage('');
+      setIsTyping(false);
+      return;
+    }
 
     const userMsg = createMessage('user', inputMessage);
     setMessages(prev => [...prev, userMsg]);
     setMessageCount(prev => prev + 1);
     
-    const currentInput = inputMessage;
     setInputMessage('');
     setIsTyping(true);
     
@@ -994,7 +1078,7 @@ const App = () => {
             setAppointmentFlow(newFlow);
             setMessages(prev => [...prev, {
               type: 'bot',
-              content: '📱 Great! What\'s your phone number?',
+              content: 'Great! What\'s your phone number?',
               timestamp: formatTime(new Date())
             }]);
             setIsTyping(false);
@@ -1004,7 +1088,7 @@ const App = () => {
             if (!/^[\d\s\-\+\(\)]{8,}$/.test(currentInput)) {
               setMessages(prev => [...prev, {
                 type: 'bot',
-                content: '❌ Please enter a valid phone number (e.g., 9876543210 or +91 98765 43210)',
+                content: 'Please enter a valid phone number (e.g., 9876543210 or +91 98765 43210)',
                 timestamp: formatTime(new Date())
               }]);
               setIsTyping(false);
@@ -1015,7 +1099,7 @@ const App = () => {
             setAppointmentFlow(newFlow);
             setMessages(prev => [...prev, {
               type: 'bot',
-              content: '📅 When would you like to schedule your appointment? (e.g., tomorrow, 25/10/2025, next Monday)',
+              content: 'When would you like to schedule your appointment? (e.g., tomorrow, 25/10/2025, next Monday)',
               timestamp: formatTime(new Date())
             }]);
             setIsTyping(false);
@@ -1027,7 +1111,7 @@ const App = () => {
             setAppointmentFlow(newFlow);
             setMessages(prev => [...prev, {
               type: 'bot',
-              content: '🕐 What time works best for you? (e.g., 10:00 AM, 3:30 PM, morning, afternoon)',
+              content: 'What time works best for you? (e.g., 10:00 AM, 3:30 PM, morning, afternoon)',
               timestamp: formatTime(new Date())
             }]);
             setIsTyping(false);
@@ -1039,7 +1123,7 @@ const App = () => {
             setAppointmentFlow(newFlow);
             setMessages(prev => [...prev, {
               type: 'bot',
-              content: '📝 What is the reason for your visit? (e.g., general checkup, consultation, follow-up)',
+              content: 'What is the reason for your visit? (e.g., general checkup, consultation, follow-up)',
               timestamp: formatTime(new Date())
             }]);
             setIsTyping(false);
@@ -1071,7 +1155,7 @@ const App = () => {
             } catch (error) {
               setMessages(prev => [...prev, {
                 type: 'bot',
-                content: '❌ Sorry, there was an error booking your appointment. Please try again or contact us directly.',
+                content: 'Sorry, there was an error booking your appointment. Please try again or contact us directly.',
                 timestamp: formatTime(new Date())
               }]);
             }
@@ -1290,7 +1374,7 @@ const App = () => {
       });
       setMessages(prev => [...prev, {
         type: 'bot',
-        content: '📅 Great! Let\'s book your appointment.\n\n👤 First, what\'s your name?',
+        content: 'Great! Let\'s book your appointment.\n\nFirst, what\'s your name?',
         timestamp: formatTime(new Date())
       }]);
       setMessageCount(prev => prev + 1);
@@ -1568,11 +1652,31 @@ const App = () => {
               style={styles.flowCancelBtn}
               onClick={() => {
                 setAppointmentFlow({ active: false, step: 0, data: {} });
+                setSelectedDate(null);
                 addMessage('Appointment booking cancelled. How else can I help you?', 'bot');
               }}
             >
               Cancel
             </button>
+          </div>
+        )}
+
+        {appointmentFlow.active && appointmentFlow.step === 2 && (
+          <div style={styles.datePickerContainer}>
+            <div style={styles.datePickerLabel}>
+              Select your preferred appointment date:
+            </div>
+            <DatePicker
+              selected={selectedDate}
+              onChange={handleDateSelect}
+              minDate={new Date()}
+              inline
+              calendarClassName="custom-calendar"
+              dateFormat="MMMM d, yyyy"
+            />
+            <div style={styles.datePickerHint}>
+              Or type your preferred date below (e.g., "tomorrow", "next Monday")
+            </div>
           </div>
         )}
 
@@ -2695,6 +2799,28 @@ const styles = {
     fontSize: '14px',
     transition: 'all 0.3s',
     fontFamily: 'inherit'
+  },
+  datePickerContainer: {
+    padding: '20px',
+    background: 'linear-gradient(135deg, #f0f7ff 0%, #e8f4ff 100%)',
+    borderTop: '2px solid #2E4AC7',
+    borderBottom: '2px solid #2E4AC7',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '15px'
+  },
+  datePickerLabel: {
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#2d3748',
+    textAlign: 'center'
+  },
+  datePickerHint: {
+    fontSize: '13px',
+    color: '#718096',
+    textAlign: 'center',
+    fontStyle: 'italic'
   }
 };
 
@@ -2723,6 +2849,88 @@ styleSheet.textContent = `
   button:hover:not(:disabled) {
     transform: translateY(-1px);
     filter: brightness(1.1);
+  }
+
+  /* Calendar Styles */
+  .react-datepicker {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+    border: 2px solid #2E4AC7 !important;
+    border-radius: 15px !important;
+    box-shadow: 0 10px 30px rgba(46, 74, 199, 0.2) !important;
+  }
+
+  .react-datepicker__header {
+    background: linear-gradient(135deg, #2E4AC7 0%, #1F3A9E 100%) !important;
+    border-bottom: none !important;
+    border-radius: 13px 13px 0 0 !important;
+    padding: 15px 0 !important;
+  }
+
+  .react-datepicker__current-month {
+    color: white !important;
+    font-weight: 700 !important;
+    font-size: 16px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .react-datepicker__day-name {
+    color: white !important;
+    font-weight: 600 !important;
+    width: 40px !important;
+    line-height: 40px !important;
+    margin: 2px !important;
+  }
+
+  .react-datepicker__day {
+    width: 40px !important;
+    line-height: 40px !important;
+    margin: 2px !important;
+    border-radius: 8px !important;
+    transition: all 0.3s !important;
+    font-weight: 600 !important;
+  }
+
+  .react-datepicker__day:hover {
+    background: #e8f1ff !important;
+    border-radius: 8px !important;
+  }
+
+  .react-datepicker__day--selected {
+    background: #2E4AC7 !important;
+    color: white !important;
+    font-weight: 700 !important;
+  }
+
+  .react-datepicker__day--keyboard-selected {
+    background: #e8f1ff !important;
+    color: #2E4AC7 !important;
+  }
+
+  .react-datepicker__day--disabled {
+    color: #ccc !important;
+    cursor: not-allowed !important;
+  }
+
+  .react-datepicker__day--today {
+    font-weight: 700 !important;
+    color: #2E4AC7 !important;
+    border: 2px solid #2E4AC7 !important;
+  }
+
+  .react-datepicker__navigation {
+    top: 18px !important;
+  }
+
+  .react-datepicker__navigation--previous {
+    border-right-color: white !important;
+  }
+
+  .react-datepicker__navigation--next {
+    border-left-color: white !important;
+  }
+
+  .react-datepicker__month {
+    margin: 15px !important;
   }
   
   @media (max-width: 768px) {

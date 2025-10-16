@@ -814,12 +814,12 @@ Remember: Admins need efficiency and accuracy, not marketing content. Be concise
                             # Replace the entire response with clean success message
                             phone_line = f"[TEL:{phone_number}]" if phone_number else "Not provided"
                             formatted_answer = (
-                                f"✅ Appointment request has been successfully sent to the admin, soon we will reach out to you.\n\n"
-                                f"👤 Name: {name}\n"
-                                f"📞 Phone: {phone_line}\n"
-                                f"📅 Date: {preferred_date}\n"
-                                f"🕐 Time: {preferred_time}\n"
-                                f"📝 Reason: {reason}"
+                                f"Appointment request has been successfully sent to the admin, soon we will reach out to you.\n\n"
+                                f"Name: {name}\n"
+                                f"Phone: {phone_line}\n"
+                                f"Date: {preferred_date}\n"
+                                f"Time: {preferred_time}\n"
+                                f"Reason: {reason}"
                             )
                     except Exception:
                         pass

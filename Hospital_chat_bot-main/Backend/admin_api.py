@@ -282,11 +282,12 @@ def detect_appointment_intent(message: str) -> bool:
 def extract_appointment_details(message: str) -> dict:
     details = {'date': None, 'time': None, 'reason': None}
     
-    # Extract date
+    # Extract date - updated to handle calendar-formatted dates
     date_patterns = [
-        r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
-        r'\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b',
-        r'\b(today|tomorrow|tmr|next week|next month)\b'
+        r'\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b',  # "Friday, October 24, 2025"
+        r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',  # "10/24/2025" or "24-10-2025"
+        r'\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b',  # "2025-10-24"
+        r'\b(today|tomorrow|tmr|next week|next month)\b'  # relative dates
     ]
     for pattern in date_patterns:
         match = re.search(pattern, message, re.IGNORECASE)
@@ -294,16 +295,22 @@ def extract_appointment_details(message: str) -> dict:
             details['date'] = match.group(0)
             break
     
-    # Extract time
+    # Extract time - updated to handle more formats
     time_patterns = [
-        r'\b\d{1,2}:\d{2}\s*(?:am|pm|AM|PM)\b',
-        r'\b\d{1,2}\s*(?:am|pm|AM|PM)\b',
-        r'\b(morning|afternoon|evening)\b'
+        r'\b\d{1,2}:\d{2}\s*(?:am|pm|AM|PM)\b',  # "10:00 AM"
+        r'\b\d{1,2}\s*(?:am|pm|AM|PM)\b',  # "10 AM"
+        r'\bat\s+(\d{1,2})\.?\s*(?:Reason|$)',  # "at 10." - extract just the hour (with optional period)
+        r'\bat\s+(\d{1,2})\b',  # "at 10" - extract just the hour
+        r'\b(morning|afternoon|evening)\b'  # time of day
     ]
     for pattern in time_patterns:
         match = re.search(pattern, message, re.IGNORECASE)
         if match:
-            details['time'] = match.group(0)
+            # For patterns that capture groups, use group(1), otherwise use group(0)
+            if 'at' in pattern and '(' in pattern:
+                details['time'] = match.group(1)
+            else:
+                details['time'] = match.group(0)
             break
     
     # Extract reason - improved patterns
