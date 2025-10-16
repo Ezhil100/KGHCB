@@ -4,6 +4,7 @@ from typing import Optional, List, Dict
 from datetime import datetime
 import uuid
 import re
+import os
 # optional local sqlite integration: try absolute import first (when module is top-level),
 # then package-relative import (when Backend is a package). Fall back to None if unavailable.
 try:
@@ -181,6 +182,8 @@ def get_appointment_requests(status: Optional[str] = None):
 
 def update_appointment_status(appointment_id: str, action: str, admin_notes: str = ""):
     new_status = 'accepted' if action == 'accept' else 'rejected'
+    appointment_data = None
+    
     if db is not None and FIREBASE_INITIALIZED:
         try:
             doc_ref = db.collection('appointment_requests').document(appointment_id)
@@ -200,23 +203,30 @@ def update_appointment_status(appointment_id: str, action: str, admin_notes: str
                     f"Notes: {admin_notes}",
                     "appointment_action"
                 )
-                return True
         except Exception:
             pass
-    for appointment in in_memory_storage['appointment_requests']:
-        if appointment.get('appointment_id') == appointment_id:
-            appointment['status'] = new_status
-            appointment['admin_notes'] = admin_notes
-            appointment['updated_at'] = datetime.now().isoformat()
-            save_admin_notification(
-                f"📋 Appointment {new_status.capitalize()}",
-                f"Date: {appointment.get('preferred_date', 'Unknown')}\n"
-                f"Time: {appointment.get('preferred_time', 'Not provided')}\n"
-                f"Status: {new_status}\n"
-                f"Notes: {admin_notes}",
-                "appointment_action"
-            )
-            return True
+    
+    # Check in-memory storage if not found in Firestore
+    if not appointment_data:
+        for appointment in in_memory_storage['appointment_requests']:
+            if appointment.get('appointment_id') == appointment_id:
+                appointment['status'] = new_status
+                appointment['admin_notes'] = admin_notes
+                appointment['updated_at'] = datetime.now().isoformat()
+                appointment_data = appointment
+                save_admin_notification(
+                    f"📋 Appointment {new_status.capitalize()}",
+                    f"Date: {appointment_data.get('preferred_date', 'Unknown')}\n"
+                    f"Time: {appointment_data.get('preferred_time', 'Not provided')}\n"
+                    f"Status: {new_status}\n"
+                    f"Notes: {admin_notes}",
+                    "appointment_action"
+                )
+                break
+    
+    if appointment_data:
+        return True
+    
     return False
 
 
@@ -271,16 +281,20 @@ def detect_appointment_intent(message: str) -> bool:
 
 def extract_appointment_details(message: str) -> dict:
     details = {'date': None, 'time': None, 'reason': None}
+    
+    # Extract date
     date_patterns = [
         r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
         r'\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b',
-        r'\b(today|tomorrow|next week|next month)\b'
+        r'\b(today|tomorrow|tmr|next week|next month)\b'
     ]
     for pattern in date_patterns:
         match = re.search(pattern, message, re.IGNORECASE)
         if match:
             details['date'] = match.group(0)
             break
+    
+    # Extract time
     time_patterns = [
         r'\b\d{1,2}:\d{2}\s*(?:am|pm|AM|PM)\b',
         r'\b\d{1,2}\s*(?:am|pm|AM|PM)\b',
@@ -291,13 +305,22 @@ def extract_appointment_details(message: str) -> dict:
         if match:
             details['time'] = match.group(0)
             break
-    reason_indicators = ['for', 'regarding', 'about', 'because']
-    for indicator in reason_indicators:
-        if indicator in message.lower():
-            parts = message.lower().split(indicator, 1)
-            if len(parts) > 1:
-                details['reason'] = parts[1].strip()[:200]
-                break
+    
+    # Extract reason - improved patterns
+    # First try: "reason: <reason>" or "reason - <reason>" or "reason <reason>"
+    reason_match = re.search(r'reason[:\-\s]+([a-zA-Z\s]+?)(?:\s*\.?\s*$|\s+\()', message, re.IGNORECASE)
+    if reason_match:
+        details['reason'] = reason_match.group(1).strip()
+    else:
+        # Second try: "for <reason>" before punctuation or end
+        reason_match = re.search(r'\bfor\s+([a-zA-Z\s]+?)(?:\s*[.,]|\s+(?:on|at|tomorrow|today|tmr|\d))', message, re.IGNORECASE)
+        if reason_match:
+            details['reason'] = reason_match.group(1).strip()
+    
+    # Clean up the reason - remove extra whitespace
+    if details['reason']:
+        details['reason'] = ' '.join(details['reason'].split())
+    
     return details
 
 # Admin endpoints

@@ -5,6 +5,11 @@ import tempfile
 import time
 from datetime import datetime
 from typing import List
+
+# Load environment variables first
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,7 +19,7 @@ try:
     from firebase_admin import firestore as _firestore
 except Exception:
     _firestore = None
-from dotenv import load_dotenv
+
 # Optional admin API import (works when running as script)
 try:
     import admin_api as _admin_api  # type: ignore
@@ -56,7 +61,6 @@ import pandas as pd  # For Excel/CSV processing
 # =============================================================================
 # CONFIGURATION & INITIALIZATION
 # =============================================================================
-load_dotenv()
 
 app = FastAPI(
     title="KG Hospital AI Chatbot API",
@@ -250,6 +254,8 @@ def setup_vectorstore(documents):
     return vectorstore
 
 def create_chain(vectorstore):
+    from langchain.prompts import PromptTemplate
+    
     llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
     # Optimal K value for ALL queries - balanced between coverage and noise
@@ -271,12 +277,46 @@ def create_chain(vectorstore):
         return_messages=True
     )
 
+    # Optimized RAG prompt template following industry best practices
+    qa_prompt_template = """You are an AI assistant for KG Hospital. Your role is to provide accurate, helpful information to hospital visitors, staff, and administrators.
+
+CRITICAL INSTRUCTIONS:
+1. Use ONLY the information provided in the Context below to answer questions
+2. If the Context doesn't contain the answer, respond with: "I don't have that specific information in my current knowledge base. Please contact KG Hospital at 0422-2324105 or visit the front desk for accurate information."
+3. Never make up or assume information not present in the Context
+4. Be concise, clear, and professional
+5. For medical advice: Always say "Please consult with a doctor for medical advice"
+
+Context (Retrieved Information):
+{context}
+
+Previous Conversation:
+{chat_history}
+
+Current Question: {question}
+
+Instructions for Response:
+- If answering about doctors: Include name, specialty, and contact if available
+- If answering about departments: Include location, services, and contact hours
+- If answering about appointments: Guide through the booking process
+- If answering about facilities: Be specific about location and timings
+- For lists (doctors, departments, etc.): Always use numbered format (1. 2. 3.) NOT bullet points
+- Keep responses under 200 words unless listing requires more
+
+Answer:"""
+
+    qa_prompt = PromptTemplate(
+        template=qa_prompt_template,
+        input_variables=["context", "chat_history", "question"]
+    )
+
     chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
         retriever=retriever,
         memory=memory,
         verbose=False,
-        return_source_documents=False
+        return_source_documents=False,
+        combine_docs_chain_kwargs={"prompt": qa_prompt}
     )
 
     return chain
@@ -469,14 +509,15 @@ def get_doctors_list():
         llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
         prompt = f"""Based on the following context, list ONLY the doctor names with their specialties/departments on the SAME line.
 
-Format each entry as: Dr. Name - Specialty/Department
+Format each entry as: Dr. Name, Specialty/Department
 
 Important rules:
 - Each doctor's specialty MUST be on the same line as their name
-- Use format: "Dr. Name - Specialty" (all on one line)
+- Use format: "Dr. Name, Specialty" (all on one line, separated by comma)
+- Do NOT include IDs, employee numbers, extensions, or contact information
 - Do not add any introductory text, notes, or additional information
 - Do not add phrases like "may not be exhaustive" or disclaimers
-- Just list the doctors in a numbered format
+- Use NUMBERED format (1. 2. 3.) NOT bullet points (•)
 
 Context:
 {context}
@@ -511,7 +552,7 @@ def get_departments_list():
 
 Do not add any introductory text, notes, explanations, or additional information.
 Do not add phrases like "may not be exhaustive" or "additional departments not listed".
-Just list the departments in a numbered format.
+Use NUMBERED format (1. 2. 3.) NOT bullet points (•).
 
 Context:
 {context}
@@ -534,6 +575,26 @@ async def chat(message: ChatMessage):
 
     try:
         print(f"Chat request ({message.user_role}): {message.message}")
+        
+        # Check if this is a simple greeting - return hardcoded response
+        greeting_patterns = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 'greetings']
+        message_lower = message.message.lower().strip()
+        is_greeting = any(message_lower == pattern or message_lower.startswith(f"{pattern} ") or message_lower.startswith(f"{pattern}!") for pattern in greeting_patterns)
+        
+        if is_greeting:
+            # Return role-specific greeting without any lists or extra info
+            greeting_responses = {
+                "visitor": "Hello! I'm here to help you with KG Hospital information. How can I assist you today?",
+                "staff": "Hello. How can I help you today?",
+                "admin": "Hello. How can I assist you with hospital management today?"
+            }
+            greeting_answer = greeting_responses.get(message.user_role, greeting_responses["visitor"])
+            return ChatResponse(
+                response=greeting_answer,
+                timestamp=datetime.now().isoformat(),
+                is_appointment_request=False,
+                appointment_id=None
+            )
         
         # Check if this is a specific doctors/departments list request
         query_type = detect_query_type(message.message)
@@ -579,44 +640,110 @@ async def chat(message: ChatMessage):
             llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
             system_prompts = {
-                "visitor": """You are a helpful KG Hospital AI assistant helping visitors.
-                
-                Provide clear information about:
-                - Visiting hours and policies
-                - Hospital location and directions
-                - Parking information and facilities
-                - Hospital amenities and services
-                
-                Format your answers using natural sentences and organize information clearly.
-                Only mention limitations or add notes when you genuinely don't have specific information or when the data is incomplete.
-                Do NOT add cautionary notes like "may not be exhaustive" or "additional items not listed" when you have provided a complete answer.
-                If information is unavailable, kindly suggest the visitor reach the hospital's help desk for more information.""",
+                "visitor": """You are KG Hospital's AI Assistant for Visitors.
 
-                "staff": """You are a helpful KG Hospital AI assistant helping hospital staff.
-                
-                Provide organized information about:
-                - Patient inquiry responses
-                - Department information and contacts
-                - Emergency protocols and procedures
-                - Hospital policies and guidelines
-                
-                Format your answers using clear sentences and organize information logically.
-                Only add notes about data limitations when you are genuinely uncertain or missing critical information.
-                Do NOT add unnecessary disclaimers like "may not be exhaustive" when you have provided complete information from the context.
-                If details are unavailable, politely mention that the staff can consult the hospital administration for accurate information.""",
+ROLE: Help visitors with general hospital information in a friendly, conversational way.
 
-                "admin": """You are a helpful KG Hospital AI assistant helping administrators.
-                
-                Provide comprehensive information about:
-                - Hospital operations and management
-                - System status and analytics
-                - Administrative procedures
-                - Staff coordination and policies
-                
-                Format your output using clear paragraphs and organize information systematically.
-                Only include notes about data limitations when the information is genuinely incomplete or uncertain.
-                Avoid adding generic disclaimers when you have provided a complete answer from the available context.
-                If certain data is not accessible, inform that the admin team can review internal records or contact support for help."""
+GREETING RESPONSES (for "hi", "hello", "hey", "good morning", "good evening"):
+- Respond ONLY with: "Hello! I'm here to help you with KG Hospital information. How can I assist you today?"
+- ABSOLUTELY NO DOCTOR LISTS - wait for them to ask
+- ABSOLUTELY NO DEPARTMENT LISTS - wait for them to ask
+- ABSOLUTELY NO EXAMPLES - just greet and ask how to help
+- DO NOT include hospital phone numbers in greetings
+- Keep greetings to 1-2 sentences maximum
+
+RESPONSE GUIDELINES:
+✓ Be warm, welcoming, and conversational
+✓ For greetings: Keep it simple, ask how you can help
+✓ For specific questions: Provide clear, direct answers
+✓ Use simple language (avoid medical jargon)
+✓ Only provide contact info when relevant to the query
+
+TOPICS YOU HANDLE:
+• Visiting hours and policies
+• Hospital location, directions, and parking
+• Facilities and amenities (cafeteria, restrooms, ATM)
+• General inquiries and navigation
+• Appointment booking guidance
+• Doctor and department information (only when asked)
+
+WHAT YOU DON'T HANDLE:
+✗ Medical advice (refer to doctors)
+✗ Patient medical records (privacy protected)
+✗ Emergency situations (mention emergency contact only if asked)
+
+If you don't know: "I don't have that information right now. You can visit our front desk or check our official website for more details."
+
+Remember: Be helpful, accurate, and conversational. Don't overwhelm with unsolicited information.""",
+
+                "staff": """You are KG Hospital's AI Assistant for Hospital Staff.
+
+ROLE: Support staff with operational information, protocols, and resource access.
+
+GREETING RESPONSES (for "hi", "hello", "hey", "good morning", "good evening"):
+- Respond ONLY with: "Hello. How can I help you today?"
+- ABSOLUTELY NO LISTS of any kind in greetings
+- Keep greetings to 1 sentence only
+
+RESPONSE GUIDELINES:
+✓ Be precise and professional
+✓ Prioritize efficiency - staff are busy
+✓ For greetings: Brief, professional
+✓ For queries: Include relevant policy references
+✓ Provide step-by-step instructions when needed
+✓ Format: Use numbered lists for procedures
+
+TOPICS YOU HANDLE:
+• Department contacts and extensions
+• Emergency protocols and procedures
+• Hospital policies and guidelines
+• Equipment and resource locations
+• Staff scheduling information
+• Patient inquiry guidance (non-medical)
+
+If you don't know: "This information is not in my current database. Please contact hospital administration at ext. 2100 or check the staff portal."
+
+Example Response:
+"For a Code Blue emergency:
+1. Call ext. 2222 immediately
+2. Start CPR if trained
+3. Get the crash cart from the nearest nursing station
+4. Clear the area for the response team
+The ICU team responds within 2 minutes. See Emergency Protocol Manual Section 4.2 for full procedures."
+
+Remember: You support healthcare professionals - be accurate, quick, and reliable.""",
+
+                "admin": """You are KG Hospital's AI Assistant for Administrators.
+
+ROLE: Provide management-level information for hospital operations and decision-making.
+
+GREETING RESPONSES (for "hi", "hello", "hey", "good morning", "good evening"):
+- Respond ONLY with: "Hello. How can I assist you with hospital management today?"
+- ABSOLUTELY NO LISTS of any kind in greetings
+- ABSOLUTELY NO CONTACT INFORMATION in greetings
+- Keep greetings to 1 sentence only
+
+RESPONSE GUIDELINES:
+✓ Be professional, concise, and direct
+✓ For greetings: Simple acknowledgment, no extra information
+✓ For data requests: Provide comprehensive, structured information
+✓ Include metrics and statistics when relevant
+✓ NO public hospital phone numbers in responses (admins have internal access)
+
+TOPICS YOU HANDLE:
+• Hospital operations and performance
+• Department coordination and resources
+• Administrative procedures and policies
+• Staff management and scheduling
+• System status and analytics
+• Doctor and department listings (only when requested)
+
+RESPONSE APPROACH:
+- For simple greetings: Brief professional response
+- For data queries: Comprehensive structured information
+- For unknowns: "This data is not available. Check internal management reports or department heads."
+
+Remember: Admins need efficiency and accuracy, not marketing content. Be concise."""
             }
 
             system_prompt = system_prompts.get(message.user_role, system_prompts["visitor"])
@@ -671,14 +798,29 @@ async def chat(message: ChatMessage):
                         )
                         if new_appointment_id:
                             is_appointment = True
-                            # Append a friendly confirmation to the AI's answer
-                            confirmation = (f"\n\nAppointment request saved successfully.\n"
-                                            f"Preferred: {preferred_date} at {preferred_time}\n"
-                                            f"Reason: {reason}\n"
-                                            f"Reference ID: {new_appointment_id}")
-                            if phone_number:
-                                confirmation += f"\nContact: [TEL:{phone_number}]"
-                            formatted_answer = f"{formatted_answer}\n{confirmation}"
+                            # Extract name from message (look for patterns like "for [name]", "name: [name]", or just first word)
+                            name = "Patient"
+                            name_patterns = [
+                                r'(?:for|name:?)\s+([A-Za-z]+)',
+                                r'^([A-Za-z]+)\s+\(',
+                                r'([A-Za-z]+)\s+\d{10}'
+                            ]
+                            for pattern in name_patterns:
+                                name_match = re.search(pattern, message.message, re.IGNORECASE)
+                                if name_match:
+                                    name = name_match.group(1).capitalize()
+                                    break
+                            
+                            # Replace the entire response with clean success message
+                            phone_line = f"[TEL:{phone_number}]" if phone_number else "Not provided"
+                            formatted_answer = (
+                                f"✅ Appointment request has been successfully sent to the admin, soon we will reach out to you.\n\n"
+                                f"👤 Name: {name}\n"
+                                f"📞 Phone: {phone_line}\n"
+                                f"📅 Date: {preferred_date}\n"
+                                f"🕐 Time: {preferred_time}\n"
+                                f"📝 Reason: {reason}"
+                            )
                     except Exception:
                         pass
         except Exception:
@@ -771,9 +913,15 @@ def format_response_text(text: str) -> str:
     # "The Hospital Has The Following\nDepartments:" -> "The Hospital Has The Following Departments:"
     text = re.sub(r'([a-zA-Z,])\s*\n\s*([a-z][^A-Z]*)', r'\1 \2', text)
     
-    # STEP 3: ONLY fix numbered lists where number is completely separate from name
-    # "1.\n\nBalasubramanian C" -> "1. Balasubramanian C"
-    text = re.sub(r'(\d+\.)\s*\n+\s*([A-Za-z][A-Za-z\s]*?)(?=\s*\n\s*\d+\.|\s*$)', r'\1 \2', text)
+    # STEP 3.5: Fix numbered lists where number is separated from content
+    # "1.\n\nDr. Name" -> "1. Dr. Name"
+    # "2]. \nDr. Name" -> "2. Dr. Name"
+    text = re.sub(r'(\d+)[\.\]]\s*\n+\s*', r'\1. ', text)
+    
+    # STEP 3.6: Remove ID/extension information from doctor lists
+    # ", ID: 1234" -> ""
+    # ", Ext: 1234" -> ""
+    text = re.sub(r',?\s*(?:ID|Ext|Extension):\s*\d+', '', text)
     
     # STEP 4: Clean up excessive whitespace
     text = re.sub(r'[ \t]+', ' ', text)  # Multiple spaces to single space
@@ -784,8 +932,9 @@ def format_response_text(text: str) -> str:
 
 def add_actionable_elements(text: str) -> str:
     """Add special markers for actionable elements like phone numbers, doctor profiles, locations."""
-    # Add markers for phone numbers (will be rendered as clickable tel: links in frontend)
-    phone_pattern = r'(\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9})'
+    # Add markers for phone numbers (only match actual phone numbers with 8+ digits, not short IDs)
+    # Matches formats like: 0422-2324105, +91-9876543210, etc.
+    phone_pattern = r'(\+?\d{1,3}[-.\s]?\(?\d{3,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{4,})'
     text = re.sub(phone_pattern, r'[TEL:\1]', text)
     
     # Map of specialties to URL-friendly slugs
@@ -897,8 +1046,9 @@ def add_actionable_elements(text: str) -> str:
         if not '[DOCTORSLIST:' in text:
             text += '\n\n[DOCTORSLIST:For complete doctors list, visit our website]'
     
-    # Add markers for hospital address/location
-    location_keywords = ['KG Hospital', 'hospital address', 'hospital location', 'No. 5, Arts College Road', 'Coimbatore']
+    # Add markers for hospital address/location (only for actual addresses, not "KG Hospital" name)
+    # Only mark physical addresses, not every mention of "KG Hospital"
+    location_keywords = ['No. 5, Arts College Road', 'Arts College Road, Coimbatore']
     for keyword in location_keywords:
         if keyword in text:
             text = text.replace(keyword, f'[LOCATION:{keyword}]')
@@ -1009,4 +1159,4 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="info")

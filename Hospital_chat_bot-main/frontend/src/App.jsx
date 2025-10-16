@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-const API_BASE_URL = 'http://172.20.10.5:8000'; // For mobile access on WiFi
+const API_BASE_URL = 'http://localhost:8000'; // Local access only
 
 // Time formatting helpers (no seconds)
 const formatTime = (date) => {
@@ -1053,7 +1053,7 @@ const App = () => {
               const response = await api.bookAppointment(newFlow.data);
               setMessages(prev => [...prev, {
                 type: 'bot',
-                content: `✅ Appointment booked successfully!\n\n📋 Summary:\n👤 Name: ${newFlow.data.name}\n📞 Phone: ${newFlow.data.phone}\n📅 Date: ${newFlow.data.date}\n🕐 Time: ${newFlow.data.time}\n📝 Reason: ${newFlow.data.reason}\n\n${response.response || 'Your appointment has been submitted to our team. You will be contacted shortly for confirmation.'}`,
+                content: response.response || 'Your appointment has been submitted to our team. You will be contacted shortly for confirmation.',
                 timestamp: formatTime(new Date())
               }]);
               
