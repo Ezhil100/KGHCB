@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/hospital-icon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="description" content="Hospital AI Assistant - 24/7 Healthcare Support with RAG-powered intelligent chat system for patients, visitors, and staff." />
     <meta name="keywords" content="hospital, AI assistant, healthcare, chatbot, medical support" />
     <meta name="theme-color" content="#667eea" />
@@ -23,7 +23,7 @@
     <title>Hospital AI Assistant - 24/7 Healthcare Support</title>
     
     <!-- Preconnect to improve performance -->
-    <link rel="preconnect" href="http://localhost:8000" />
+    <link rel="preconnect" href="http://192.168.137.173:8000" />
     
     <!-- Global Styles -->
     <style>
@@ -37,6 +37,9 @@
         height: 100%;
         width: 100%;
         overflow: hidden;
+        position: fixed;
+        -webkit-text-size-adjust: 100%;
+        -ms-text-size-adjust: 100%;
       }
       
       body {
@@ -47,11 +50,13 @@
         -moz-osx-font-smoothing: grayscale;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         background-attachment: fixed;
+        touch-action: pan-y;
       }
       
       #root {
         height: 100%;
         width: 100%;
+        overflow: hidden;
       }
       
       /* Loading Animation */

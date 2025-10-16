@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
-const API_BASE_URL = 'http://localhost:8000'; // Local access only
+const API_BASE_URL = 'http://192.168.137.173:8000'; // WiFi network access
 
 // Time formatting helpers (no seconds)
 const formatTime = (date) => {
@@ -784,7 +784,6 @@ const App = () => {
   const [connectionStatus, setConnectionStatus] = useState('connecting');
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [showQuickActions, setShowQuickActions] = useState(true);
   const [messageCount, setMessageCount] = useState(0);
   const [showRoleSelector, setShowRoleSelector] = useState(true);
   const [userId, setUserId] = useState(null);
@@ -814,12 +813,6 @@ const App = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
-
-  useEffect(() => {
-    if (messageCount >= 3) {
-      setShowQuickActions(false);
-    }
-  }, [messageCount]);
 
   const api = {
     sendMessage: async (message, userRole) => {
@@ -1336,54 +1329,6 @@ const App = () => {
     }
   };
 
-  const quickActions = {
-    visitor: ['Visiting Hours', 'Hospital Location', 'Book Appointment', 'Emergency: 📞 0422-2324105'],
-    staff: ['Department Info', 'Emergency Protocols', 'Hospital Policies', 'Emergency: 📞 0422-2324105'],
-    admin: ['System Status', 'Upload Documents', 'Reload System']
-  };
-
-  const handleQuickAction = (action) => {
-    if (action === 'Upload Documents') {
-      setShowAdminModal(true);
-      return;
-    }
-    if (action === 'System Status') {
-      loadSystemStatus();
-      setShowAdminModal(true);
-      return;
-    }
-    if (action === 'Reload System') {
-      handleReloadDocuments();
-      return;
-    }
-    // Handle emergency call action
-    if (action.includes('Emergency:')) {
-      const phoneMatch = action.match(/(\d[\d\s\-]+)/);
-      if (phoneMatch) {
-        const phone = phoneMatch[1].replace(/\s/g, '');
-        window.location.href = `tel:${phone}`;
-      }
-      return;
-    }
-    // Handle Book Appointment action
-    if (action === 'Book Appointment') {
-      setAppointmentFlow({
-        active: true,
-        step: 0,
-        data: { name: '', phone: '', date: '', time: '', reason: '' }
-      });
-      setMessages(prev => [...prev, {
-        type: 'bot',
-        content: 'Great! Let\'s book your appointment.\n\nFirst, what\'s your name?',
-        timestamp: formatTime(new Date())
-      }]);
-      setMessageCount(prev => prev + 1);
-      return;
-    }
-    setInputMessage(action);
-    setMessageCount(prev => prev + 1);
-  };
-
   // Admin data loaders
   const loadChatHistory = async () => {
     try {
@@ -1533,25 +1478,137 @@ const App = () => {
 
   return (
     <>
+      <style>{`
+        /* Ultra-compact header for mobile browsers */
+        @media (max-width: 768px) {
+          .chatbot-header {
+            padding: 6px 10px !important;
+            padding-top: max(6px, env(safe-area-inset-top, 6px)) !important;
+            min-height: 50px !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+          }
+          
+          .header-content {
+            gap: 10px !important;
+          }
+          
+          .header-logo-icon {
+            width: 36px !important;
+            height: 36px !important;
+            font-size: 16px !important;
+            border-radius: 8px !important;
+          }
+          
+          .header-title {
+            font-size: 14px !important;
+            line-height: 1.2 !important;
+            font-weight: 600 !important;
+            white-space: nowrap !important;
+          }
+          
+          .header-subtitle {
+            display: none !important;
+          }
+          
+          .header-controls {
+            gap: 6px !important;
+          }
+          
+          .user-role-badge {
+            padding: 4px 8px !important;
+            font-size: 11px !important;
+            border-radius: 5px !important;
+          }
+          
+          .switch-role-btn {
+            padding: 7px 10px !important;
+            font-size: 12px !important;
+            border-radius: 6px !important;
+            white-space: nowrap !important;
+          }
+          
+          .admin-panel-btn {
+            padding: 7px 8px !important;
+            font-size: 12px !important;
+            min-width: 36px !important;
+            border-radius: 6px !important;
+          }
+          
+          .admin-panel-btn span {
+            display: none !important;
+          }
+          
+          .admin-panel-btn svg {
+            width: 20px !important;
+            height: 20px !important;
+          }
+        }
+        
+        /* Extra small phones */
+        @media (max-width: 480px) {
+          .chatbot-header {
+            padding: 5px 8px !important;
+            padding-top: max(5px, env(safe-area-inset-top, 5px)) !important;
+            min-height: 46px !important;
+          }
+          
+          .header-logo-icon {
+            width: 32px !important;
+            height: 32px !important;
+            font-size: 14px !important;
+            border-radius: 6px !important;
+          }
+          
+          .header-title {
+            font-size: 13px !important;
+          }
+          
+          .user-role-badge {
+            padding: 3px 6px !important;
+            font-size: 10px !important;
+          }
+          
+          .switch-role-btn {
+            padding: 6px 8px !important;
+            font-size: 11px !important;
+          }
+          
+          .admin-panel-btn {
+            padding: 6px 7px !important;
+            min-width: 32px !important;
+          }
+          
+          .admin-panel-btn svg {
+            width: 18px !important;
+            height: 18px !important;
+          }
+        }
+        
+        /* Force minimal height on all screen sizes */
+        .chatbot-header {
+          flex-shrink: 0 !important;
+        }
+      `}</style>
       <div style={styles.chatbotContainer}>
-        <div style={styles.chatbotHeader}>
-          <div style={styles.headerContent}>
+        <div style={styles.chatbotHeader} className="chatbot-header">
+          <div style={styles.headerContent} className="header-content">
             <div style={styles.hospitalLogo}>
-              <div style={styles.logoIconSmall}>
+              <div style={styles.logoIconSmall} className="header-logo-icon">
                 <Icons.Hospital />
               </div>
               <div style={styles.logoText}>
-                <h3 style={styles.headerTitle}>Hospital AI Assistant</h3>
-                <p style={styles.headerSubtitle}>24/7 Healthcare Support</p>
+                <h3 style={styles.headerTitle} className="header-title">Hospital AI Assistant</h3>
+                <p style={styles.headerSubtitle} className="header-subtitle">24/7 Healthcare Support</p>
               </div>
             </div>
-            <div style={styles.headerControls}>
+            <div style={styles.headerControls} className="header-controls">
               <div style={styles.userInfo}>
-                <span style={styles.userRole}>{userRole}</span>
+                <span style={styles.userRole} className="user-role-badge">{userRole}</span>
               </div>
               {userRole === 'admin' && (
                 <button 
                   style={styles.adminPanelBtn}
+                  className="admin-panel-btn"
                   onClick={() => {
                     setShowAdminModal(true);
                     loadDocuments();
@@ -1564,11 +1621,11 @@ const App = () => {
               )}
               <button 
                 style={styles.logoutBtn} 
+                className="switch-role-btn"
                 onClick={() => {
                   setShowRoleSelector(true);
                   setMessages([]);
                   setMessageCount(0);
-                  setShowQuickActions(true);
                 }}
               >
                 Switch Role
@@ -1605,26 +1662,6 @@ const App = () => {
           
           <div ref={messagesEndRef} />
         </div>
-
-        {showQuickActions && (
-          <div style={styles.quickActions}>
-            <div style={styles.quickActionsHeader}>
-              <h4 style={styles.quickActionsTitle}>Quick Actions:</h4>
-              <span style={styles.messageCounter}>Messages: {messageCount}/3</span>
-            </div>
-            <div style={styles.actionButtons}>
-              {quickActions[userRole]?.map((action, index) => (
-                <button 
-                  key={index} 
-                  style={styles.actionBtn}
-                  onClick={() => handleQuickAction(action)}
-                >
-                  {action}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         {appointmentFlow.active && (
           <div style={styles.appointmentFlowBanner}>
@@ -2075,8 +2112,10 @@ const styles = {
   hospitalLogo: {
     display: 'flex',
     alignItems: 'center',
-    gap: '15px',
-    marginBottom: '30px'
+    gap: '10px',
+    marginBottom: '30px',
+    flex: '1 1 auto',
+    minWidth: '0'
   },
   logoIcon: {
     width: '60px',
@@ -2091,20 +2130,24 @@ const styles = {
     fontWeight: 'bold'
   },
   logoIconSmall: {
-    width: '45px',
-    height: '45px',
+    width: '40px',
+    height: '40px',
     background: 'linear-gradient(135deg, #2E4AC7 0%, #1F3A9E 100%)',
-    borderRadius: '12px',
+    borderRadius: '10px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     color: 'white',
-    fontSize: '18px',
+    fontSize: '16px',
     fontWeight: 'bold',
     flexShrink: 0
   },
   logoText: {
-    flex: 1
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px'
   },
   logoTitle: {
     margin: 0,
@@ -2191,36 +2234,45 @@ const styles = {
   chatbotContainer: {
     display: 'flex',
     flexDirection: 'column',
-    height: '100vh',
+    height: '100dvh',
     background: '#f7fafc',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    maxWidth: '100vw',
+    overflow: 'hidden'
   },
   chatbotHeader: {
     background: 'linear-gradient(135deg, #2E4AC7 0%, #1F3A9E 100%)',
     color: 'white',
-    padding: '20px',
-    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+    padding: '12px 15px',
+    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+    paddingTop: 'max(12px, env(safe-area-inset-top))',
+    position: 'sticky',
+    top: 0,
+    zIndex: 100
   },
   headerContent: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: '15px'
+    gap: '8px',
+    maxWidth: '100%'
   },
   headerTitle: {
     margin: 0,
-    fontSize: '20px'
+    fontSize: 'clamp(15px, 3.5vw, 20px)',
+    lineHeight: '1.2'
   },
   headerSubtitle: {
-    margin: '5px 0 0 0',
-    fontSize: '13px',
-    opacity: 0.9
+    margin: '3px 0 0 0',
+    fontSize: 'clamp(10px, 2.5vw, 13px)',
+    opacity: 0.9,
+    lineHeight: '1.2'
   },
   headerControls: {
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
+    gap: '8px',
     flexWrap: 'wrap'
   },
   userInfo: {
@@ -2230,53 +2282,56 @@ const styles = {
     gap: '4px'
   },
   userRole: {
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 3vw, 14px)',
     fontWeight: '600',
     textTransform: 'capitalize',
-    padding: '6px 12px',
+    padding: '6px 10px',
     background: 'rgba(255,255,255,0.2)',
     borderRadius: '8px'
   },
   adminPanelBtn: {
-    padding: '10px 16px',
+    padding: '8px 12px',
     background: 'rgba(255,255,255,0.2)',
     border: '1px solid rgba(255,255,255,0.3)',
     color: 'white',
-    borderRadius: '10px',
+    borderRadius: '8px',
     cursor: 'pointer',
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 3vw, 14px)',
     fontWeight: '500',
     transition: 'all 0.3s',
     display: 'flex',
     alignItems: 'center',
-    gap: '8px'
+    gap: '6px'
   },
   logoutBtn: {
-    padding: '10px 16px',
+    padding: '8px 12px',
     background: 'rgba(255,255,255,0.9)',
     border: 'none',
     color: '#1F3A9E',
-    borderRadius: '10px',
+    borderRadius: '8px',
     cursor: 'pointer',
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 3vw, 14px)',
     fontWeight: 'bold',
     transition: 'all 0.3s'
   },
   chatMessages: {
     flex: 1,
     overflowY: 'auto',
-    padding: '20px',
+    padding: '15px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '15px',
-    background: 'linear-gradient(135deg, #fafcff 0%, #f5f9ff 100%)'
+    gap: '12px',
+    background: 'linear-gradient(135deg, #fafcff 0%, #f5f9ff 100%)',
+    overflowX: 'hidden'
   },
   message: {
-    maxWidth: '70%',
-    padding: '14px 18px',
+    maxWidth: '75%',
+    padding: '12px 16px',
     borderRadius: '16px',
     animation: 'fadeIn 0.3s ease-in',
-    wordWrap: 'break-word'
+    wordWrap: 'break-word',
+    wordBreak: 'break-word',
+    overflowWrap: 'break-word'
   },
   messageUser: {
     alignSelf: 'flex-end',
@@ -2291,12 +2346,12 @@ const styles = {
     border: '1px solid #d1e4ff'
   },
   messageContent: {
-    fontSize: '15px',
+    fontSize: 'clamp(13px, 3.5vw, 15px)',
     lineHeight: '1.5',
     marginBottom: '6px'
   },
   messageTime: {
-    fontSize: '11px',
+    fontSize: 'clamp(10px, 2.5vw, 11px)',
     opacity: 0.7
   },
   typingIndicator: {
@@ -2311,85 +2366,42 @@ const styles = {
     background: '#2E4AC7',
     animation: 'bounce 1.4s infinite ease-in-out'
   },
-  quickActions: {
-    padding: '20px',
-    background: 'linear-gradient(135deg, #e8f1ff 0%, #f0f8ff 100%)',
-    borderTop: '1px solid #d1e4ff',
-    animation: 'slideUp 0.4s ease-out'
-  },
-  quickActionsHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '16px'
-  },
-  quickActionsTitle: {
-    margin: 0,
-    fontSize: '16px',
-    color: '#1F3A9E',
-    fontWeight: '600'
-  },
-  messageCounter: {
-    fontSize: '13px',
-    color: '#718096',
-    padding: '6px 12px',
-    background: 'rgba(255, 140, 0, 0.1)',
-    borderRadius: '12px',
-    border: '1px solid rgba(255, 140, 0, 0.2)'
-  },
-  actionButtons: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: '10px'
-  },
-  actionBtn: {
-    padding: '12px 18px',
-    background: 'linear-gradient(135deg, #2E4AC7 0%, #1F3A9E 100%)',
-    color: 'white',
-    border: 'none',
-    borderRadius: '10px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: '500',
-    transition: 'all 0.3s',
-    whiteSpace: 'nowrap',
-    boxShadow: '0 2px 4px rgba(46, 74, 199, 0.3)'
-  },
   chatInput: {
     display: 'flex',
-    gap: '12px',
-    padding: '20px',
+    gap: '10px',
+    padding: '12px',
     background: 'white',
     borderTop: '1px solid #e8f1ff'
   },
   messageInput: {
     flex: 1,
-    padding: '14px 18px',
+    padding: '12px 14px',
     border: '2px solid #d1e4ff',
-    borderRadius: '16px',
-    fontSize: '15px',
+    borderRadius: '12px',
+    fontSize: 'clamp(14px, 3.5vw, 15px)',
     resize: 'none',
     outline: 'none',
     fontFamily: 'inherit',
-    maxHeight: '120px',
+    maxHeight: '100px',
     transition: 'border-color 0.3s',
-    background: 'linear-gradient(135deg, #fafcff 0%, #f8fafe 100%)'
+    background: 'linear-gradient(135deg, #fafcff 0%, #f8fafe 100%)',
+    minHeight: '44px'
   },
   sendButton: {
-    padding: '14px 24px',
+    padding: '12px 16px',
     background: 'linear-gradient(135deg, #FF8C00 0%, #FFA500 100%)',
     color: 'white',
     border: 'none',
-    borderRadius: '16px',
+    borderRadius: '12px',
     cursor: 'pointer',
-    fontSize: '15px',
+    fontSize: 'clamp(13px, 3.5vw, 15px)',
     fontWeight: 'bold',
     transition: 'all 0.3s',
     whiteSpace: 'nowrap',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: '100px'
+    minWidth: '80px'
   },
   sendButtonDisabled: {
     opacity: 0.5,
@@ -2413,16 +2425,16 @@ const styles = {
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: '20px',
+    padding: '10px',
     zIndex: 1000,
     animation: 'fadeIn 0.3s ease-in'
   },
   modalContainer: {
     background: 'linear-gradient(135deg, #ffffff 0%, #f8fafe 100%)',
-    borderRadius: '20px',
+    borderRadius: '16px',
     width: '100%',
     maxWidth: '900px',
-    maxHeight: '90vh',
+    maxHeight: '95vh',
     display: 'flex',
     flexDirection: 'column',
     boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
@@ -2432,51 +2444,52 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '25px 30px',
+    padding: '16px 20px',
     borderBottom: '1px solid #e2e8f0',
     background: 'linear-gradient(135deg, #2E4AC7 0%, #1F3A9E 100%)',
     color: 'white',
-    borderTopLeftRadius: '20px',
-    borderTopRightRadius: '20px'
+    borderTopLeftRadius: '16px',
+    borderTopRightRadius: '16px'
   },
   modalTitle: {
     margin: 0,
-    fontSize: '24px',
+    fontSize: 'clamp(18px, 4vw, 24px)',
     color: 'white',
     fontWeight: '600'
   },
   modalClose: {
-    width: '44px',
-    height: '44px',
+    width: '40px',
+    height: '40px',
     border: 'none',
     background: 'rgba(255,255,255,0.2)',
-    borderRadius: '12px',
+    borderRadius: '10px',
     cursor: 'pointer',
-    fontSize: '20px',
+    fontSize: '18px',
     color: 'white',
     transition: 'all 0.3s',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    flexShrink: 0
   },
   modalContent: {
     flex: 1,
     overflowY: 'auto',
-    padding: '30px',
+    padding: '20px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '24px',
+    gap: '20px',
     background: 'linear-gradient(135deg, #fafcff 0%, #f5f9ff 100%)'
   },
   adminCard: {
     background: 'linear-gradient(135deg, #ffffff 0%, #f8fafe 100%)',
-    borderRadius: '16px',
-    padding: '28px',
+    borderRadius: '12px',
+    padding: '16px',
     border: '1px solid #e8f1ff'
   },
   cardTitle: {
-    margin: '0 0 20px 0',
-    fontSize: '18px',
+    margin: '0 0 16px 0',
+    fontSize: 'clamp(16px, 4vw, 18px)',
     color: '#1F3A9E',
     fontWeight: '600'
   },
@@ -2733,48 +2746,55 @@ const styles = {
     background: 'linear-gradient(135deg, #fff9e6 0%, #fff3cd 100%)',
     border: '2px solid #ffd966',
     borderRadius: '12px',
-    padding: '14px 18px',
+    padding: '12px',
     margin: '0 0 12px 0',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     boxShadow: '0 2px 8px rgba(255, 193, 7, 0.15)',
-    animation: 'slideUp 0.3s ease-out'
+    animation: 'slideUp 0.3s ease-out',
+    flexWrap: 'wrap',
+    gap: '10px'
   },
   flowProgress: {
     display: 'flex',
     alignItems: 'center',
-    gap: '14px',
-    flex: 1
+    gap: '10px',
+    flex: '1 1 auto',
+    minWidth: '200px'
   },
   flowIcon: {
-    fontSize: '24px',
-    animation: 'bounce 1.5s infinite'
+    fontSize: 'clamp(20px, 5vw, 24px)',
+    animation: 'bounce 1.5s infinite',
+    flexShrink: 0
   },
   flowInfo: {
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px'
+    gap: '6px',
+    minWidth: 0
   },
   flowSteps: {
     display: 'flex',
-    gap: '8px',
-    alignItems: 'center'
+    gap: '6px',
+    alignItems: 'center',
+    flexWrap: 'wrap'
   },
   flowStep: {
-    width: '28px',
-    height: '28px',
+    width: 'clamp(24px, 6vw, 28px)',
+    height: 'clamp(24px, 6vw, 28px)',
     borderRadius: '50%',
     background: '#fff',
     border: '2px solid #e0e0e0',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: '12px',
+    fontSize: 'clamp(10px, 3vw, 12px)',
     fontWeight: '700',
     color: '#999',
-    transition: 'all 0.3s'
+    transition: 'all 0.3s',
+    flexShrink: 0
   },
   flowStepActive: {
     background: '#2E4AC7',
@@ -2789,35 +2809,37 @@ const styles = {
     color: 'white'
   },
   flowCancelBtn: {
-    padding: '8px 16px',
+    padding: '8px 14px',
     background: '#fff',
     color: '#dc3545',
     border: '2px solid #dc3545',
     borderRadius: '8px',
     cursor: 'pointer',
     fontWeight: '700',
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 3vw, 14px)',
     transition: 'all 0.3s',
-    fontFamily: 'inherit'
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap'
   },
   datePickerContainer: {
-    padding: '20px',
+    padding: '15px',
     background: 'linear-gradient(135deg, #f0f7ff 0%, #e8f4ff 100%)',
     borderTop: '2px solid #2E4AC7',
     borderBottom: '2px solid #2E4AC7',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: '15px'
+    gap: '12px',
+    overflowX: 'auto'
   },
   datePickerLabel: {
-    fontSize: '16px',
+    fontSize: 'clamp(14px, 3.5vw, 16px)',
     fontWeight: '600',
     color: '#2d3748',
     textAlign: 'center'
   },
   datePickerHint: {
-    fontSize: '13px',
+    fontSize: 'clamp(11px, 3vw, 13px)',
     color: '#718096',
     textAlign: 'center',
     fontStyle: 'italic'
@@ -2933,16 +2955,114 @@ styleSheet.textContent = `
     margin: 15px !important;
   }
   
+  /* Mobile Responsive Styles */
   @media (max-width: 768px) {
-    .chat-messages { padding: 15px !important; }
-    .message { max-width: 85% !important; }
-    .quick-actions { padding: 15px !important; }
-    .action-buttons { gap: 8px !important; }
-    .action-btn { padding: 10px 14px !important; font-size: 13px !important; }
-    .modal-container { margin: 10px !important; }
-    .modal-content { padding: 20px !important; }
-    .admin-card { padding: 20px !important; }
-    .status-grid { grid-template-columns: 1fr !important; }
+    /* Prevent zooming on input focus */
+    input, textarea, select {
+      font-size: 16px !important;
+    }
+    
+    /* Calendar mobile adjustments */
+    .react-datepicker {
+      font-size: 0.85rem !important;
+      transform: scale(0.85);
+      transform-origin: center center;
+      margin: 0 auto;
+    }
+    
+    .react-datepicker__day-name,
+    .react-datepicker__day {
+      width: 32px !important;
+      line-height: 32px !important;
+      margin: 1px !important;
+    }
+    
+    .react-datepicker__current-month {
+      font-size: 14px !important;
+    }
+    
+    .react-datepicker__header {
+      padding: 12px 0 !important;
+    }
+    
+    /* General mobile styles */
+    .chat-messages { 
+      padding: 10px !important; 
+      gap: 10px !important;
+    }
+    
+    .message { 
+      max-width: 90% !important;
+      padding: 10px 12px !important;
+      font-size: 14px !important;
+      border-radius: 12px !important;
+    }
+    
+    .quick-actions { 
+      padding: 10px !important; 
+    }
+    
+    .action-buttons { 
+      gap: 6px !important;
+      justify-content: flex-start !important;
+    }
+    
+    .action-btn { 
+      padding: 10px 12px !important; 
+      font-size: 13px !important;
+      flex: 1 1 calc(50% - 3px) !important;
+      min-width: 0 !important;
+      white-space: normal !important;
+      text-align: center !important;
+      line-height: 1.3 !important;
+    }
+    
+    .modal-container { 
+      margin: 5px !important;
+      max-height: 95vh !important;
+      border-radius: 12px !important;
+      max-width: calc(100vw - 10px) !important;
+    }
+    
+    .modal-header {
+      padding: 14px 16px !important;
+    }
+    
+    .modal-content { 
+      padding: 12px !important; 
+    }
+    
+    .admin-card { 
+      padding: 12px !important; 
+    }
+    
+    .status-grid { 
+      grid-template-columns: 1fr !important;
+      gap: 10px !important;
+    }
+    
+    /* Mobile touch improvements */
+    button, .action-btn, input, textarea {
+      -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+    }
+  }
+  
+  @media (max-width: 480px) {
+    /* Extra small devices */
+    .react-datepicker {
+      transform: scale(0.75) !important;
+    }
+    
+    .message {
+      max-width: 95% !important;
+      padding: 8px 10px !important;
+      font-size: 13px !important;
+    }
+    
+    .action-btn {
+      font-size: 12px !important;
+      padding: 8px 10px !important;
+    }
   }
 `;
 document.head.appendChild(styleSheet);
