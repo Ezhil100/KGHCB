@@ -20,7 +20,7 @@
 1. Open your mobile browser (Safari, Chrome, etc.)
 2. Type this address in the URL bar:
    ```
-   http://192.168.137.173:5173
+   http://172.20.10.5:5173
    ```
 3. Press Go/Enter
 
@@ -174,7 +174,7 @@ Want to show others on your WiFi?
 1. Keep servers running on your computer
 2. Share this URL with them:
    ```
-   http://192.168.137.173:5173
+   http://172.20.10.5:5173
    ```
 3. They can access from their devices
 4. Multiple users can use simultaneously
@@ -204,7 +204,8 @@ Your Hospital AI Assistant is now accessible on your mobile device. Test all fea
 
 **Current Setup:**
 
-- Computer: Running servers at `192.168.137.173`
-- Mobile: Access at `http://192.168.137.173:5173`
+- Computer: Running servers at `172.20.10.5`
+- Mobile: Access at `http://172.20.10.5:5173`
 - Network: Same WiFi required
 - Status: Ready to use! 🚀
+

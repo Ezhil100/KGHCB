@@ -11,7 +11,7 @@
 2. **On your mobile device:**
    - Connect to the same WiFi network
    - Open browser
-   - Go to: `http://192.168.137.173:5173`
+   - Go to: `http://172.20.10.5:5173`
 
 That's it! 🎉
 
@@ -20,7 +20,7 @@ That's it! 🎉
 ### From Mobile/Tablet (Same WiFi):
 
 ```
-http://192.168.137.173:5173
+http://172.20.10.5:5173
 ```
 
 ### From Your Computer:
@@ -28,7 +28,7 @@ http://192.168.137.173:5173
 ```
 http://localhost:5173
 OR
-http://192.168.137.173:5173
+http://172.20.10.5:5173
 ```
 
 ## ⚠️ Troubleshooting

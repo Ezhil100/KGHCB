@@ -138,6 +138,8 @@ class ChatResponse(BaseModel):
     timestamp: str
     is_appointment_request: bool = False
     appointment_id: str | None = None
+    show_appointment_button: bool = False
+    suggested_reason: str | None = None
 
 # =============================================================================
 # DOCUMENT PROCESSING FUNCTIONS
@@ -428,6 +430,24 @@ def reload_all_documents():
 # =============================================================================
 # HELPER FUNCTIONS FOR SPECIFIC QUERIES
 # =============================================================================
+def detect_information_query(message: str) -> bool:
+    """Detect if user is asking for information about symptoms, doctors, or treatment.
+    These queries should return information first before offering appointment booking."""
+    message_lower = message.lower().strip()
+    
+    # Keywords indicating user wants information first
+    info_keywords = [
+        'who should i consult', 'which doctor', 'what doctor', 'who to consult',
+        'who can i see', 'who do i see', 'which specialist',
+        'fever', 'headache', 'pain', 'cold', 'cough', 'symptom',
+        'treatment for', 'cure for', 'specialist for', 'doctor for',
+        'suffering from', 'have', 'got', 'experiencing',
+        'diabetes', 'blood pressure', 'heart', 'stomach', 'back pain',
+        'chest pain', 'throat', 'skin', 'allergy'
+    ]
+    
+    return any(keyword in message_lower for keyword in info_keywords)
+
 def detect_query_type(message: str):
     """Detect if user is asking for COMPLETE doctors/departments list ONLY.
     Returns None for specific questions that need RAG processing."""
@@ -761,15 +781,49 @@ Remember: Admins need efficiency and accuracy, not marketing content. Be concise
         # Add actionable elements (phone numbers, locations, etc.)
         formatted_answer = add_actionable_elements(formatted_answer)
 
-        # Detect appointment intent and save appointment if details are present
+        # Detect appointment intent and information query
         is_appointment = False
         new_appointment_id = None
+        show_booking_button = False
+        suggested_reason_text = None
+        
         try:
             wants_appointment = False
+            has_info_query = detect_information_query(message.message)
+            
             if 'detect_appointment_intent' in globals() and callable(detect_appointment_intent):
                 wants_appointment = bool(detect_appointment_intent(message.message))
-            # If intent detected, save appointment
-            if wants_appointment:
+            
+            # COMPOUND QUERY: User asks about symptoms/doctors AND wants appointment
+            if has_info_query and wants_appointment:
+                # Don't immediately book - show info with booking button
+                show_booking_button = True
+                
+                # Extract reason from the query for pre-filling
+                reason_keywords = {
+                    'fever': 'Fever treatment',
+                    'headache': 'Headache consultation', 
+                    'pain': 'Pain management',
+                    'cold': 'Cold and flu',
+                    'cough': 'Cough treatment',
+                    'diabetes': 'Diabetes consultation',
+                    'blood pressure': 'Blood pressure checkup',
+                    'heart': 'Cardiac consultation',
+                    'stomach': 'Gastric issues',
+                    'chest pain': 'Chest pain consultation',
+                }
+                
+                message_lower = message.message.lower()
+                for keyword, reason in reason_keywords.items():
+                    if keyword in message_lower:
+                        suggested_reason_text = reason
+                        break
+                
+                # Add appointment button prompt to the answer
+                formatted_answer += "\n\nWould you like to book an appointment with one of these doctors?"
+                
+            # SIMPLE APPOINTMENT REQUEST: User only wants to book
+            elif wants_appointment:
                 # Extract simple details including phone number
                 details = {"date": None, "time": None, "reason": None}
                 if 'extract_appointment_details' in globals() and callable(extract_appointment_details):
@@ -843,7 +897,9 @@ Remember: Admins need efficiency and accuracy, not marketing content. Be concise
             response=formatted_answer,
             timestamp=datetime.now().isoformat(),
             is_appointment_request=is_appointment,
-            appointment_id=new_appointment_id
+            appointment_id=new_appointment_id,
+            show_appointment_button=show_booking_button,
+            suggested_reason=suggested_reason_text
         )
 
     except Exception as e:

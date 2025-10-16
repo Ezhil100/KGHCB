@@ -1,9 +1,0 @@
-Department,Services,Location,Phone,Hours,Emergency Available
-Blood Bank,"Blood donation, Transfusion, Blood testing, Plasma services",Block A-2,0422-2324106,24/7,Yes
-Cardiology,"ECG, Echo, Angiography, Pacemaker, Heart monitoring",Block B-1,0422-2324107,8 AM - 8 PM,Yes
-Orthopedic,"Joint replacement, Fracture care, Sports medicine, Arthroscopy",Block C-3,0422-2324109,9 AM - 6 PM,No
-Pediatrics,"Child care, Vaccination, Growth monitoring, Neonatal care",Block A-1,0422-2324110,24/7,Yes
-Laboratory,"Blood tests, Urine tests, Biopsy, Culture tests, Pathology",Block A-3,0422-2324105,24/7,Yes
-Radiology,"X-Ray, CT Scan, MRI, Ultrasound, Mammography",Block B-2,0422-2324113,7 AM - 10 PM,Yes
-Emergency,"Trauma care, Critical care, Ambulance services, ICU",Main Block Ground Floor,0422-2324100,24/7,Yes
-Neurology,"Brain disorders, Stroke care, Epilepsy treatment, Nerve studies",Block C-1,0422-2324108,9 AM - 6 PM,Yes

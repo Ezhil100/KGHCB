@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
-const API_BASE_URL = 'http://192.168.137.173:8000'; // WiFi network access
+const API_BASE_URL = 'http://172.20.10.5:8000'; // WiFi network access
 
 // Time formatting helpers (no seconds)
 const formatTime = (date) => {
@@ -1010,47 +1010,9 @@ const App = () => {
 
     const currentInput = inputMessage.trim();
     
-    // Check if user is trying to book appointment (and not already in flow)
-    const appointmentTriggers = [
-      'book appointment',
-      'book an appointment', 
-      'make appointment',
-      'make an appointment',
-      'schedule appointment',
-      'schedule an appointment',
-      'i want to book appointment',
-      'i need appointment',
-      'need an appointment'
-    ];
-    
-    const isBookingRequest = appointmentTriggers.some(trigger => 
-      currentInput.toLowerCase().includes(trigger)
-    );
-    
-    if (isBookingRequest && !appointmentFlow.active) {
-      // Start appointment flow
-      setMessages(prev => [...prev, 
-        {
-          type: 'user',
-          content: currentInput,
-          timestamp: formatTime(new Date())
-        },
-        {
-          type: 'bot',
-          content: 'Great! Let\'s book your appointment.\n\nFirst, what\'s your name?',
-          timestamp: formatTime(new Date())
-        }
-      ]);
-      setAppointmentFlow({
-        active: true,
-        step: 0,
-        data: { name: '', phone: '', date: '', time: '', reason: '' }
-      });
-      setMessageCount(prev => prev + 1);
-      setInputMessage('');
-      setIsTyping(false);
-      return;
-    }
+    // REMOVED: Frontend auto-trigger for appointments
+    // Let backend handle compound queries (e.g., "I have fever and need appointment")
+    // Backend will return show_appointment_button flag when appropriate
 
     const userMsg = createMessage('user', inputMessage);
     setMessages(prev => [...prev, userMsg]);
@@ -1167,6 +1129,13 @@ const App = () => {
       // Normal chat flow
       const response = await api.sendMessage(currentInput, userRole);
       const botMsg = createMessage('bot', response.response || 'No response generated.');
+      
+      // Add appointment button fields if backend suggests it
+      if (response.show_appointment_button) {
+        botMsg.showAppointmentButton = true;
+        botMsg.suggestedReason = response.suggested_reason || '';
+      }
+      
       setMessages(prev => [...prev, botMsg]);
       
       if (response.is_appointment_request) {
@@ -1645,6 +1614,28 @@ const App = () => {
                 )}
               </div>
               <div style={styles.messageTime}>{message.timestamp}</div>
+              
+              {/* Show appointment booking button if suggested by backend */}
+              {message.showAppointmentButton && message.type === 'bot' && (
+                <button
+                  style={styles.inlineAppointmentBtn}
+                  onClick={() => {
+                    const suggestedReason = message.suggestedReason || '';
+                    setAppointmentFlow({
+                      active: true,
+                      step: 0,
+                      data: { name: '', phone: '', date: '', time: '', reason: suggestedReason }
+                    });
+                    setMessages(prev => [...prev, {
+                      type: 'bot',
+                      content: `Great! Let's book your appointment${suggestedReason ? ` for ${suggestedReason.toLowerCase()}` : ''}.\n\nFirst, what's your name?`,
+                      timestamp: formatTime(new Date())
+                    }]);
+                  }}
+                >
+                  📅 Book Appointment
+                </button>
+              )}
             </div>
           ))}
           
@@ -2353,6 +2344,25 @@ const styles = {
   messageTime: {
     fontSize: 'clamp(10px, 2.5vw, 11px)',
     opacity: 0.7
+  },
+  inlineAppointmentBtn: {
+    marginTop: '12px',
+    padding: '12px 20px',
+    background: 'linear-gradient(135deg, #FF8C00 0%, #FFA500 100%)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '10px',
+    cursor: 'pointer',
+    fontSize: 'clamp(13px, 3.5vw, 15px)',
+    fontWeight: '600',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    transition: 'all 0.3s',
+    boxShadow: '0 4px 8px rgba(255, 140, 0, 0.3)',
+    width: '100%',
+    maxWidth: '250px'
   },
   typingIndicator: {
     display: 'flex',
