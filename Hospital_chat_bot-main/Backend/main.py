@@ -481,7 +481,8 @@ def detect_query_type(message: str):
         message_lower == 'dept',
         # List requests without specifics
         message_lower in ['list doctors', 'list all doctors', 'all doctors', 'doctors list', 
-                          'show doctors', 'show all doctors', 'give me doctors'],
+                          'doctor list', 'docs list', 'doc list', 'doctors', 'show doctors', 
+                          'show all doctors', 'give me doctors', 'show me doctors'],
         message_lower in ['list departments', 'list all departments', 'all departments', 
                           'departments list', 'show departments', 'show all departments', 
                           'give me departments'],
