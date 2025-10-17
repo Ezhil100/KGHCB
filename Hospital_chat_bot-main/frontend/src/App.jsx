@@ -2436,16 +2436,18 @@ const styles = {
     padding: '20px 24px',
     background: '#f7fafc',
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    flexWrap: 'nowrap'
   },
   messageInput: {
-    flex: 'none',
-    width: '1000px',
-    maxWidth: '90%',
+    flex: '1',
+    width: 'auto',
+    maxWidth: '1000px',
+    minWidth: '0',
     padding: '14px 22px',
     border: '1px solid #d0d0d0',
     borderRadius: '30px',
-    fontSize: 'clamp(15px, 3.5vw, 16px)',
+    fontSize: 'clamp(14px, 3.5vw, 16px)',
     resize: 'none',
     outline: 'none',
     fontFamily: 'inherit',
@@ -2471,7 +2473,8 @@ const styles = {
     minWidth: '52px',
     minHeight: '52px',
     width: '52px',
-    height: '52px'
+    height: '52px',
+    flexShrink: '0'
   },
   sendButtonDisabled: {
     opacity: 0.5,
@@ -2495,7 +2498,8 @@ const styles = {
     minHeight: '52px',
     width: '52px',
     height: '52px',
-    boxShadow: '0 2px 8px rgba(46, 74, 199, 0.3)'
+    boxShadow: '0 2px 8px rgba(46, 74, 199, 0.3)',
+    flexShrink: '0'
   },
   quickResponsePanel: {
     display: 'flex',
@@ -3113,6 +3117,34 @@ styleSheet.textContent = `
       border-radius: 12px !important;
     }
     
+    /* Mobile input area styles */
+    div[style*="chatInput"] {
+      padding: 12px 10px !important;
+      gap: 8px !important;
+    }
+    
+    textarea[style*="messageInput"] {
+      padding: 12px 16px !important;
+      font-size: 14px !important;
+      min-height: 44px !important;
+      border-radius: 22px !important;
+    }
+    
+    button[style*="sendButton"],
+    button[style*="quickSettingsButton"] {
+      min-width: 44px !important;
+      min-height: 44px !important;
+      width: 44px !important;
+      height: 44px !important;
+      padding: 12px !important;
+    }
+    
+    button[style*="sendButton"] svg,
+    button[style*="quickSettingsButton"] svg {
+      width: 20px !important;
+      height: 20px !important;
+    }
+    
     .quick-actions { 
       padding: 10px !important; 
     }
@@ -3177,6 +3209,34 @@ styleSheet.textContent = `
     .action-btn {
       font-size: 12px !important;
       padding: 8px 10px !important;
+    }
+    
+    /* Extra small input area adjustments */
+    div[style*="chatInput"] {
+      padding: 10px 8px !important;
+      gap: 6px !important;
+    }
+    
+    textarea[style*="messageInput"] {
+      padding: 10px 14px !important;
+      font-size: 13px !important;
+      min-height: 40px !important;
+      border-radius: 20px !important;
+    }
+    
+    button[style*="sendButton"],
+    button[style*="quickSettingsButton"] {
+      min-width: 40px !important;
+      min-height: 40px !important;
+      width: 40px !important;
+      height: 40px !important;
+      padding: 10px !important;
+    }
+    
+    button[style*="sendButton"] svg,
+    button[style*="quickSettingsButton"] svg {
+      width: 18px !important;
+      height: 18px !important;
     }
   }
 `;
