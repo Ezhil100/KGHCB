@@ -617,6 +617,38 @@ async def chat(message: ChatMessage):
                 appointment_id=None
             )
         
+        # Check if this is a hospital location request
+        location_keywords = ['hospital location', 'where is the hospital', 'hospital address', 
+                            'how to reach', 'directions', 'where are you located', 'location',
+                            'address of hospital', 'hospital directions', 'where is kg hospital',
+                            'where is kghospital', 'hospil location', 'hsplt location']
+        is_location_query = any(keyword in message_lower for keyword in location_keywords)
+        
+        if is_location_query:
+            location_response = """📍 **KG Hospital Location:**
+
+**Address:**
+No. 5, Arts College Road,
+Coimbatore - 641 018,
+Tamil Nadu, India
+
+**Contact:**
+📞 Phone: 0422-2324105
+
+**How to Reach:**
+KG Hospital is located on Arts College Road in Coimbatore city center, easily accessible by all modes of transport.
+
+For detailed directions and map, please visit: https://www.kghospital.com/"""
+            
+            location_response = add_actionable_elements(location_response)
+            
+            return ChatResponse(
+                response=location_response,
+                timestamp=datetime.now().isoformat(),
+                is_appointment_request=False,
+                appointment_id=None
+            )
+        
         # Check if this is a specific doctors/departments list request
         query_type = detect_query_type(message.message)
         
