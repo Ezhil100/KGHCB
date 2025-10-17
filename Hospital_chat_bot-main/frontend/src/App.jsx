@@ -222,51 +222,9 @@ const processActionableText = (text) => {
         );
         break;
       case 'doctorprofile':
-        // Build URL: https://www.kghospital.com/doctors/{specialty}/{dr-name}
-        const doctorProfileUrl = `https://www.kghospital.com/doctors/${match.specialty}/${match.slug}`;
+        // Just display the doctor name as plain text, no link
         parts.push(
-          <span key={key} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <span>{match.content}</span>
-            <a 
-              href={doctorProfileUrl} 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '18px',
-                height: '18px',
-                textDecoration: 'none',
-                transition: 'all 0.3s',
-                cursor: 'pointer',
-                opacity: 0.7
-              }}
-              title="View doctor profile"
-              onMouseOver={(e) => {
-                e.currentTarget.style.opacity = '1';
-                e.currentTarget.style.transform = 'scale(1.15)';
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.opacity = '0.7';
-                e.currentTarget.style.transform = 'scale(1)';
-              }}
-            >
-              <svg 
-                viewBox="0 0 24 24" 
-                width="18" 
-                height="18" 
-                fill="none" 
-                stroke="#2E4AC7" 
-                strokeWidth="2.5" 
-                strokeLinecap="round" 
-                strokeLinejoin="round"
-              >
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-            </a>
-          </span>
+          <span key={key}>{match.content}</span>
         );
         break;
       case 'doctor':
