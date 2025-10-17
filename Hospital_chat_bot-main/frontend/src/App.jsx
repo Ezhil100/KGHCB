@@ -151,6 +151,27 @@ const Icons = {
       <path d="M3 3v18h18"/>
       <path d="M7 12l4-4 4 4 4-4"/>
     </svg>
+  ),
+
+  Calendar: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="4" width="18" height="18" rx="2"/>
+      <path d="M16 2v4M8 2v4M3 10h18"/>
+    </svg>
+  ),
+
+  History: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M12 6v6l4 2"/>
+    </svg>
+  ),
+
+  Notification: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+      <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+    </svg>
   )
 };
 
@@ -771,6 +792,9 @@ const App = () => {
   const [showQuickResponses, setShowQuickResponses] = useState(true);
   const [quickResponseClickCount, setQuickResponseClickCount] = useState(0);
   
+  // Mobile view state for responsive tabs
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  
   // Appointment booking flow states
   const [appointmentFlow, setAppointmentFlow] = useState({
     active: false,
@@ -796,6 +820,16 @@ const App = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  // Handle window resize for responsive tabs
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const api = {
     sendMessage: async (message, userRole) => {
@@ -1888,25 +1922,31 @@ const App = () => {
                 style={{...styles.tabBtn, ...(adminTab === 'dashboard' ? styles.tabBtnActive : {})}}
                 onClick={() => setAdminTab('dashboard')}
               >
-                Dashboard
+                <Icons.Dashboard />
+                {!isMobile && <span style={{ marginLeft: '6px' }}>Dashboard</span>}
               </button>
               <button 
                 style={{...styles.tabBtn, ...(adminTab === 'appointments' ? styles.tabBtnActive : {})}}
                 onClick={() => { setAdminTab('appointments'); loadAppointments(); loadStatistics(); }}
               >
-                Appointments {statistics.pending_appointments > 0 && (<span style={styles.badge}>{statistics.pending_appointments}</span>)}
+                <Icons.Calendar />
+                {!isMobile && <span style={{ marginLeft: '6px' }}>Appointments</span>}
+                {statistics.pending_appointments > 0 && (<span style={styles.badge}>{statistics.pending_appointments}</span>)}
               </button>
               <button 
                 style={{...styles.tabBtn, ...(adminTab === 'history' ? styles.tabBtnActive : {})}}
                 onClick={() => { setAdminTab('history'); loadChatHistory(); }}
               >
-                Chat History
+                <Icons.History />
+                {!isMobile && <span style={{ marginLeft: '6px' }}>Chat History</span>}
               </button>
               <button 
                 style={{...styles.tabBtn, ...(adminTab === 'notifications' ? styles.tabBtnActive : {})}}
                 onClick={() => { setAdminTab('notifications'); loadNotifications(); }}
               >
-                Notifications {unreadNotifications > 0 && (<span style={styles.badge}>{unreadNotifications}</span>)}
+                <Icons.Notification />
+                {!isMobile && <span style={{ marginLeft: '6px' }}>Notifications</span>}
+                {unreadNotifications > 0 && (<span style={styles.badge}>{unreadNotifications}</span>)}
               </button>
             </div>
             
@@ -2843,7 +2883,11 @@ const styles = {
     borderRadius: '10px',
     cursor: 'pointer',
     fontSize: '13px',
-    fontWeight: '600'
+    fontWeight: '600',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '4px'
   },
   tabBtnActive: {
     background: '#2E4AC7',
