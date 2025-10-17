@@ -167,6 +167,7 @@ const processActionableText = (text) => {
     { regex: /\[DOCTOR:([^\]]+)\]/g, type: 'doctor' },
     { regex: /\[DOCTORPROFILE:([^\|]+)\|([^\|]+)\|([^\]]+)\]/g, type: 'doctorprofile' },
     { regex: /\[DOCTORSLIST:([^\]]+)\]/g, type: 'doctorslist' },
+    { regex: /\[DEPARTMENTSLIST:([^\]]+)\]/g, type: 'departmentslist' },
     { regex: /\[LOCATION:([^\]]+)\]/g, type: 'location' },
     { regex: /\[EMERGENCY:([\d\s\-\+]+)\]/g, type: 'emergency' },
     { regex: /\[DEPARTMENT:([^\]]+)\]/g, type: 'department' }
@@ -290,6 +291,26 @@ const processActionableText = (text) => {
             transition: 'all 0.3s'
           }} title="View complete doctors list">
             👨‍⚕️ {match.content} →
+          </a>
+        );
+        break;
+      case 'departmentslist':
+        const departmentsListUrl = `https://www.kghospital.com/departments`;
+        parts.push(
+          <a key={key} href={departmentsListUrl} target="_blank" rel="noopener noreferrer" style={{
+            color: '#1F3A9E',
+            fontWeight: '700',
+            textDecoration: 'none',
+            padding: '8px 16px',
+            background: 'linear-gradient(135deg, #e8f1ff 0%, #d1e4ff 100%)',
+            border: '2px solid #1F3A9E',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            display: 'inline-block',
+            marginTop: '8px',
+            transition: 'all 0.3s'
+          }} title="View complete departments list">
+            🏥 {match.content} →
           </a>
         );
         break;

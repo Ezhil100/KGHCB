@@ -1102,6 +1102,16 @@ def add_actionable_elements(text: str) -> str:
         if not '[DOCTORSLIST:' in text:
             text += '\n\n[DOCTORSLIST:For complete doctors list, visit our website]'
     
+    # Check if this is a departments listing (contains multiple numbered departments)
+    # Match patterns like "1. Department" or "1) Department" with at least 3 entries
+    department_pattern = r'^\s*\d+[\.)]\s+[A-Z]'
+    department_count = len(re.findall(department_pattern, text, re.MULTILINE))
+    
+    # If listing multiple departments (3 or more), also add a link to complete departments list at the end
+    if department_count >= 3:
+        if not '[DEPARTMENTSLIST:' in text:
+            text += '\n\n[DEPARTMENTSLIST:For complete departments list, visit our website]'
+    
     # Add markers for hospital address/location (only for actual addresses, not "KG Hospital" name)
     # Only mark physical addresses, not every mention of "KG Hospital"
     location_keywords = ['No. 5, Arts College Road', 'Arts College Road, Coimbatore']
