@@ -273,7 +273,9 @@ def detect_appointment_intent(message: str) -> bool:
     appointment_keywords = [
         'appointment', 'book', 'schedule', 'meet', 'doctor visit',
         'consultation', 'checkup', 'visit doctor', 'see doctor',
-        'reserve', 'slot', 'available time'
+        'reserve', 'slot', 'available time', 'need to book',
+        'want to book', 'like to book', 'can i book', 'need appointment',
+        'want appointment', 'need to see', 'want to see', 'consult'
     ]
     message_lower = message.lower()
     return any(keyword in message_lower for keyword in appointment_keywords)

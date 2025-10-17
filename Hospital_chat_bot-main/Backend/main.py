@@ -812,6 +812,17 @@ Remember: Admins need efficiency and accuracy, not marketing content. Be concise
                     'heart': 'Cardiac consultation',
                     'stomach': 'Gastric issues',
                     'chest pain': 'Chest pain consultation',
+                    'back pain': 'Back pain treatment',
+                    'throat': 'Throat infection',
+                    'flu': 'Flu treatment',
+                    'allergy': 'Allergy consultation',
+                    'skin': 'Skin condition',
+                    'breathing': 'Respiratory issues',
+                    'dizzy': 'Dizziness consultation',
+                    'vomit': 'Vomiting/Nausea',
+                    'injury': 'Injury treatment',
+                    'checkup': 'General checkup',
+                    'consultation': 'General consultation'
                 }
                 
                 message_lower = message.message.lower()
