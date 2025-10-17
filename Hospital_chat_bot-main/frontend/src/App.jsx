@@ -1010,9 +1010,29 @@ const App = () => {
 
     const currentInput = inputMessage.trim();
     
-    // REMOVED: Frontend auto-trigger for appointments
-    // Let backend handle compound queries (e.g., "I have fever and need appointment")
-    // Backend will return show_appointment_button flag when appropriate
+    // Check for appointment booking trigger
+    const appointmentTriggers = ['book appointment', 'book an appointment', 'make appointment', 'schedule appointment'];
+    const isAppointmentRequest = appointmentTriggers.some(trigger => 
+      currentInput.toLowerCase().includes(trigger)
+    );
+    
+    if (isAppointmentRequest && !appointmentFlow.active) {
+      const userMsg = createMessage('user', inputMessage);
+      setMessages(prev => [...prev, userMsg]);
+      setInputMessage('');
+      setIsTyping(true);
+      
+      setTimeout(() => {
+        setMessages(prev => [...prev, {
+          type: 'bot',
+          content: 'I\'ll help you book an appointment. Please provide your full name:',
+          timestamp: formatTime(new Date())
+        }]);
+        setAppointmentFlow({ active: true, step: 0, data: { name: '', phone: '', date: '', time: '', reason: '' } });
+        setIsTyping(false);
+      }, 500);
+      return;
+    }
 
     const userMsg = createMessage('user', inputMessage);
     setMessages(prev => [...prev, userMsg]);
