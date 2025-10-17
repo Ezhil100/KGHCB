@@ -1727,33 +1727,98 @@ const App = () => {
           </div>
         )}
 
-        {/* Quick Response Panel */}
+        {/* Quick Response Panel - Role Based */}
         {showQuickResponses && (
           <div style={styles.quickResponsePanel}>
-            <button 
-              style={styles.quickResponseButton}
-              onClick={() => handleQuickResponse('Book appointment')}
-            >
-              📅 Book appointment
-            </button>
-            <button 
-              style={styles.quickResponseButton}
-              onClick={() => handleQuickResponse('Show me doctors list')}
-            >
-              👨‍⚕️ Doctors list
-            </button>
-            <button 
-              style={styles.quickResponseButton}
-              onClick={() => handleQuickResponse('Show me departments')}
-            >
-              🏥 Departments
-            </button>
-            <button 
-              style={styles.quickResponseButton}
-              onClick={() => handleQuickResponse('Hospital location')}
-            >
-              📍 Location
-            </button>
+            {/* Visitor Quick Actions */}
+            {userRole === 'visitor' && (
+              <>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Book appointment')}
+                >
+                  📅 Book appointment
+                </button>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Show me doctors list')}
+                >
+                  👨‍⚕️ Doctors list
+                </button>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Show me departments')}
+                >
+                  🏥 Departments
+                </button>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Hospital location')}
+                >
+                  📍 Location
+                </button>
+              </>
+            )}
+            
+            {/* Staff Quick Actions */}
+            {userRole === 'staff' && (
+              <>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Show me doctors list')}
+                >
+                  👨‍⚕️ Doctors list
+                </button>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Show me departments')}
+                >
+                  🏥 Departments
+                </button>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Emergency contact numbers')}
+                >
+                  🚨 Emergency contacts
+                </button>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Hospital facilities and services')}
+                >
+                  🏨 Facilities
+                </button>
+              </>
+            )}
+            
+            {/* Admin Quick Actions */}
+            {userRole === 'admin' && (
+              <>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Show me all hospital departments')}
+                >
+                  🏥 All Departments
+                </button>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Show me complete doctors list')}
+                >
+                  👨‍⚕️ All Doctors
+                </button>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Hospital contact information and administration details')}
+                >
+                  📞 Contact Info
+                </button>
+                <button 
+                  style={styles.quickResponseButton}
+                  onClick={() => handleQuickResponse('Hospital services and facilities overview')}
+                >
+                  ℹ️ Hospital Info
+                </button>
+              </>
+            )}
           </div>
         )}
 
