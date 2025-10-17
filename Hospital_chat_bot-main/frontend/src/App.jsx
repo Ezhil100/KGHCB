@@ -767,6 +767,10 @@ const App = () => {
   const [showRoleSelector, setShowRoleSelector] = useState(true);
   const [userId, setUserId] = useState(null);
   
+  // Quick settings states
+  const [showQuickResponses, setShowQuickResponses] = useState(true);
+  const [quickResponseClickCount, setQuickResponseClickCount] = useState(0);
+  
   // Appointment booking flow states
   const [appointmentFlow, setAppointmentFlow] = useState({
     active: false,
@@ -982,6 +986,22 @@ const App = () => {
         timestamp: formatTime(new Date())
       }]);
     }, 300);
+  };
+
+  // Handle quick response button clicks
+  const handleQuickResponse = (text) => {
+    setInputMessage(text);
+    setQuickResponseClickCount(prev => prev + 1);
+    
+    // Auto-hide after 3 clicks
+    if (quickResponseClickCount + 1 >= 3) {
+      setShowQuickResponses(false);
+    }
+    
+    // Trigger send message after setting input
+    setTimeout(() => {
+      handleSendMessage();
+    }, 100);
   };
 
   const handleSendMessage = async () => {
@@ -1707,7 +1727,48 @@ const App = () => {
           </div>
         )}
 
+        {/* Quick Response Panel */}
+        {showQuickResponses && (
+          <div style={styles.quickResponsePanel}>
+            <button 
+              style={styles.quickResponseButton}
+              onClick={() => handleQuickResponse('Book appointment')}
+            >
+              📅 Book appointment
+            </button>
+            <button 
+              style={styles.quickResponseButton}
+              onClick={() => handleQuickResponse('Show me doctors list')}
+            >
+              👨‍⚕️ Doctors list
+            </button>
+            <button 
+              style={styles.quickResponseButton}
+              onClick={() => handleQuickResponse('Show me departments')}
+            >
+              🏥 Departments
+            </button>
+            <button 
+              style={styles.quickResponseButton}
+              onClick={() => handleQuickResponse('Hospital location')}
+            >
+              📍 Location
+            </button>
+          </div>
+        )}
+
         <div style={styles.chatInput}>
+          <button 
+            onClick={() => setShowQuickResponses(!showQuickResponses)}
+            style={styles.quickSettingsButton}
+            title="Quick Settings"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 1v6m0 6v6M1 12h6m6 0h6"/>
+              <circle cx="12" cy="12" r="10"/>
+            </svg>
+          </button>
           <textarea
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
@@ -2415,6 +2476,51 @@ const styles = {
   sendButtonDisabled: {
     opacity: 0.5,
     cursor: 'not-allowed'
+  },
+  quickSettingsButton: {
+    padding: '14px 14px',
+    background: 'linear-gradient(135deg, #2E4AC7 0%, #4A6CDB 100%)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '50%',
+    cursor: 'pointer',
+    fontSize: '18px',
+    fontWeight: 'bold',
+    transition: 'all 0.3s',
+    whiteSpace: 'nowrap',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '52px',
+    minHeight: '52px',
+    width: '52px',
+    height: '52px',
+    boxShadow: '0 2px 8px rgba(46, 74, 199, 0.3)'
+  },
+  quickResponsePanel: {
+    display: 'flex',
+    gap: '10px',
+    padding: '16px 24px',
+    background: '#ffffff',
+    borderBottom: '1px solid #e8e8e8',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    animation: 'slideDown 0.3s ease-out'
+  },
+  quickResponseButton: {
+    padding: '10px 18px',
+    background: 'linear-gradient(135deg, #e8f1ff 0%, #d1e4ff 100%)',
+    color: '#1F3A9E',
+    border: '2px solid #1F3A9E',
+    borderRadius: '20px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '600',
+    transition: 'all 0.3s',
+    whiteSpace: 'nowrap',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px'
   },
   loadingSpinner: {
     width: '16px',
