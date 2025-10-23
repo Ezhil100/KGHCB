@@ -1,10 +1,10 @@
-# main.py - No Authentication Version
+# main.py - Complete Corrected Version
 import re
 import os
 import tempfile
 import time
 from datetime import datetime
-from typing import List
+from typing import List, Dict, Optional
 
 # Load environment variables first
 from dotenv import load_dotenv
@@ -30,7 +30,6 @@ try:
     save_appointment_request = getattr(_admin_api, 'save_appointment_request', None)
 except Exception:
     try:
-        # Try package-style import if Backend is a package
         from . import admin_api as _admin_api  # type: ignore
         admin_router = getattr(_admin_api, 'router', None)
         save_chat_history = getattr(_admin_api, 'save_chat_history', None)
@@ -126,6 +125,105 @@ conversation_chain = None
 loaded_documents = []
 
 # =============================================================================
+# IMPROVED SESSION MANAGEMENT WITH BETTER NUMBER TRACKING
+# =============================================================================
+user_sessions = {}
+
+class UserSession:
+    def __init__(self):
+        self.last_doctor_list = []  # Store [{number: 1, name: "Dr. X", specialty: "Y", info: "..."}]
+        self.last_department_list = []  # Store [{number: 1, name: "Dept X", info: "..."}]
+        self.last_query_time = datetime.now()
+        self.context_type = None  # 'doctors', 'departments', or None
+        self.last_raw_doctor_list = ""  # Store the raw displayed list for validation
+    
+    def is_session_valid(self, timeout_minutes=30):
+        """Check if session is still valid (not expired)"""
+        elapsed = (datetime.now() - self.last_query_time).total_seconds() / 60
+        return elapsed < timeout_minutes
+    
+    def update_timestamp(self):
+        self.last_query_time = datetime.now()
+    
+    def set_doctor_list(self, doctors: List[Dict], raw_list: str = ""):
+        """Store numbered doctor list with raw text for validation"""
+        self.last_doctor_list = doctors
+        self.last_raw_doctor_list = raw_list
+        self.context_type = 'doctors'
+        self.update_timestamp()
+    
+    def set_department_list(self, departments: List[Dict]):
+        """Store numbered department list"""
+        self.last_department_list = departments
+        self.context_type = 'departments'
+        self.update_timestamp()
+    
+    def get_doctor_by_number(self, number: int) -> Optional[Dict]:
+        """Retrieve doctor info by number with improved validation"""
+        if not self.is_session_valid():
+            return None
+        
+        # First try structured data
+        for doc in self.last_doctor_list:
+            if doc['number'] == number:
+                return doc
+        
+        # Fallback: parse from raw list if structured data fails
+        if self.last_raw_doctor_list:
+            lines = self.last_raw_doctor_list.split('\n')
+            for line in lines:
+                line = line.strip()
+                # Match pattern: "1. Dr. Name, Specialty" or "1. Dr. Name - Specialty"
+                match = re.match(r'^(\d+)\.\s+(Dr\.\s+.+?)(?:,\s+|\s+-\s+)(.+)$', line)
+                if match:
+                    try:
+                        line_number = int(match.group(1))
+                        if line_number == number:
+                            return {
+                                'number': number,
+                                'name': match.group(2).strip(),
+                                'specialty': match.group(3).strip(),
+                                'info': "",
+                                'full_text': line
+                            }
+                    except (ValueError, IndexError):
+                        continue
+        
+        return None
+    
+    def get_department_by_number(self, number: int) -> Optional[Dict]:
+        """Retrieve department info by number"""
+        if not self.is_session_valid():
+            return None
+        for dept in self.last_department_list:
+            if dept['number'] == number:
+                return dept
+        return None
+    
+    def clear_context(self):
+        """Clear stored context"""
+        self.last_doctor_list = []
+        self.last_department_list = []
+        self.last_raw_doctor_list = ""
+        self.context_type = None
+
+def get_user_session(user_id: str) -> UserSession:
+    """Get or create user session"""
+    if user_id not in user_sessions:
+        user_sessions[user_id] = UserSession()
+    return user_sessions[user_id]
+
+def cleanup_expired_sessions():
+    """Remove expired sessions to save memory"""
+    expired_users = []
+    for user_id, session in user_sessions.items():
+        if not session.is_session_valid():
+            expired_users.append(user_id)
+    
+    for user_id in expired_users:
+        del user_sessions[user_id]
+
+# =============================================================================
 # PYDANTIC MODELS
 # =============================================================================
 class ChatMessage(BaseModel):
@@ -140,6 +238,7 @@ class ChatResponse(BaseModel):
     appointment_id: str | None = None
     show_appointment_button: bool = False
     suggested_reason: str | None = None
+    context_type: str | None = None  # 'doctors', 'departments', or None
 
 # =============================================================================
 # DOCUMENT PROCESSING FUNCTIONS
@@ -153,15 +252,12 @@ def load_document(file_path: str):
     # Handle CSV files
     if file_ext == '.csv':
         try:
-            # Read CSV to format each row as a structured document
             df = pd.read_csv(file_path)
             print(f"Loaded CSV with {len(df)} rows and columns: {list(df.columns)}")
             
-            # Convert each row to a structured text document
             from langchain.schema import Document
             documents = []
             for idx, row in df.iterrows():
-                # Create structured text from row data
                 row_text = " | ".join([f"{col}: {row[col]}" for col in df.columns if pd.notna(row[col])])
                 documents.append(Document(
                     page_content=row_text,
@@ -177,15 +273,12 @@ def load_document(file_path: str):
     # Handle Excel files (.xlsx, .xls)
     elif file_ext in ['.xlsx', '.xls']:
         try:
-            # Read Excel to format each row as a structured document
             df = pd.read_excel(file_path)
             print(f"Loaded Excel with {len(df)} rows and columns: {list(df.columns)}")
             
-            # Convert each row to a structured text document
             from langchain.schema import Document
             documents = []
             for idx, row in df.iterrows():
-                # Create structured text from row data
                 row_text = " | ".join([f"{col}: {row[col]}" for col in df.columns if pd.notna(row[col])])
                 documents.append(Document(
                     page_content=row_text,
@@ -260,15 +353,12 @@ def create_chain(vectorstore):
     
     llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
-    # Optimal K value for ALL queries - balanced between coverage and noise
-    # Higher K = more context but potential noise
-    # Lower K = precise but might miss information
     retriever = vectorstore.as_retriever(
         search_type="mmr",
         search_kwargs={
-            "k": 10,           # Retrieve 10 most relevant diverse documents for ALL queries
-            "fetch_k": 25,     # Consider 25 candidates for MMR selection
-            "lambda_mult": 0.5 # Balance relevance vs diversity
+            "k": 15,  # Increased from 10 to 15 for better context
+            "fetch_k": 30,  # Increased from 25 to 30
+            "lambda_mult": 0.5
         }
     )
 
@@ -279,15 +369,15 @@ def create_chain(vectorstore):
         return_messages=True
     )
 
-    # Optimized RAG prompt template following industry best practices
-    qa_prompt_template = """You are an AI assistant for KG Hospital. Your role is to provide accurate, helpful information to hospital visitors, staff, and administrators.
+    # IMPROVED PROMPT TEMPLATE - Less restrictive, more intelligent
+    qa_prompt_template = """You are an AI assistant for KG Hospital. Your role is to provide helpful information to hospital visitors, staff, and administrators.
 
-CRITICAL INSTRUCTIONS:
-1. Use ONLY the information provided in the Context below to answer questions
-2. If the Context doesn't contain the answer, respond with: "I don't have that specific information in my current knowledge base. Please contact KG Hospital at 0422-2324105 or visit the front desk for accurate information."
-3. Never make up or assume information not present in the Context
-4. Be concise, clear, and professional
-5. For medical advice: Always say "Please consult with a doctor for medical advice"
+IMPORTANT GUIDELINES:
+1. Use the information provided in the Context below as your primary knowledge source
+2. If the Context contains relevant information, provide a comprehensive answer based on it
+3. If the Context doesn't contain specific details but you can provide general medical/hospital guidance, do so while being clear about limitations
+4. For medical advice: Always recommend consulting with healthcare professionals
+5. Be helpful, accurate, and professional in all responses
 
 Context (Retrieved Information):
 {context}
@@ -297,15 +387,15 @@ Previous Conversation:
 
 Current Question: {question}
 
-Instructions for Response:
-- If answering about doctors: Include name, specialty, and contact if available
-- If answering about departments: Include location, services, and contact hours
-- If answering about appointments: Guide through the booking process
-- If answering about facilities: Be specific about location and timings
-- For lists (doctors, departments, etc.): Always use numbered format (1. 2. 3.) NOT bullet points
-- Keep responses under 200 words unless listing requires more
+RESPONSE GUIDELINES:
+- For doctors: Provide names, specialties, and available information. If listing multiple doctors, use numbered format.
+- For departments: Include services, locations, and available details
+- For medical queries: Provide general information but emphasize consulting doctors
+- For appointments: Explain the process based on available information
+- For symptoms: Provide general guidance but recommend medical consultation
+- Always be helpful and avoid saying "I don't know" unless absolutely necessary
 
-Answer:"""
+Answer in a helpful, informative tone:"""
 
     qa_prompt = PromptTemplate(
         template=qa_prompt_template,
@@ -347,11 +437,9 @@ def list_firebase_files():
         blobs = bucket.list_blobs(prefix="documents/")
         files_info = []
         
-        # Supported file extensions
         supported_extensions = ('.pdf', '.csv', '.xlsx', '.xls')
 
         for blob in blobs:
-            # Check if file has a supported extension
             if blob.name.lower().endswith(supported_extensions):
                 files_info.append({
                     'name': blob.name.replace('documents/', ''),
@@ -374,7 +462,6 @@ def download_firebase_file(file_name: str):
         if not blob.exists():
             return None
 
-        # Get the original file extension to preserve it
         file_ext = os.path.splitext(file_name)[1] or '.tmp'
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
         temp_file_path = temp_file.name
@@ -428,14 +515,187 @@ def reload_all_documents():
     return False, "No documents could be processed"
 
 # =============================================================================
-# HELPER FUNCTIONS FOR SPECIFIC QUERIES
+# IMPROVED NUMBER REFERENCE DETECTION
 # =============================================================================
-def detect_information_query(message: str) -> bool:
-    """Detect if user is asking for information about symptoms, doctors, or treatment.
-    These queries should return information first before offering appointment booking."""
+def detect_number_reference(message: str) -> Optional[int]:
+    """Enhanced number detection with better patterns"""
     message_lower = message.lower().strip()
     
-    # Keywords indicating user wants information first
+    # Remove any extra spaces and normalize
+    message_clean = re.sub(r'\s+', ' ', message_lower)
+    
+    # Enhanced patterns for number references:
+    patterns = [
+        r'^\s*(\d+)\s*$',  # Just a number: "1", " 2 ", "3"
+        r'^(?:number|no\.?|#)\s*(\d+)\s*$',  # "number 1", "no 1", "#1"
+        r'^(?:doctor|dr\.?|option|choice)\s*(?:number|no\.?|#)?\s*(\d+)\s*$',  # "doctor 1", "option 1"
+        r'^tell me (?:about|more about)?\s*(?:number|no\.?|#)?\s*(\d+)\s*$',  # "tell me about 1"
+        r'^(?:show|give|select|choose)\s+(?:me\s+)?(?:number|no\.?|#)?\s*(\d+)\s*$',  # "show me 1", "select 2"
+        r'^(\d+)\s*(?:please|pls|details|info)?\s*$',  # "1 please", "2 details"
+        r'^i choose\s*(\d+)\s*$',  # "i choose 1"
+        r'^want\s+(?:number|no\.?|#)?\s*(\d+)\s*$',  # "want 1"
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, message_clean)
+        if match:
+            try:
+                number = int(match.group(1))
+                # Validate it's a reasonable number (1-50 for doctors)
+                if 1 <= number <= 50:
+                    return number
+            except (ValueError, IndexError):
+                continue
+    
+    return None
+
+# =============================================================================
+# IMPROVED DOCTOR LIST EXTRACTION AND FORMATTING
+# =============================================================================
+def extract_structured_doctor_info(context: str) -> List[Dict]:
+    """Enhanced doctor extraction with better formatting"""
+    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+    
+    prompt = f"""Extract ALL doctor information from the context and format as a structured numbered list.
+
+CRITICAL INSTRUCTIONS:
+1. Extract EVERY doctor mentioned in the context
+2. For each doctor, include: Name and Specialty/Department
+3. Format EXACTLY as: Number. Dr. Name, Specialty
+4. If specialty is not specified, try to infer from context or leave as "General Medicine"
+5. Ensure ALL numbers are sequential starting from 1
+6. Do NOT skip any numbers
+7. Do NOT add any introductory text, notes, or disclaimers
+8. Do NOT include IDs, employee numbers, or extensions
+
+Context:
+{context}
+
+Format your response EXACTLY like this:
+1. Dr. Name1, Specialty1
+2. Dr. Name2, Specialty2
+3. Dr. Name3, Specialty3"""
+
+    response = llm.invoke(prompt)
+    raw_text = response.content.strip()
+    
+    # Parse the numbered list into structured data
+    doctors = []
+    lines = raw_text.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Enhanced pattern matching for various formats
+        patterns = [
+            r'^(\d+)\.\s+(Dr\.\s+.+?),\s+(.+)$',  # "1. Dr. Name, Specialty"
+            r'^(\d+)\.\s+(Dr\.\s+.+?)\s+-\s+(.+)$',  # "1. Dr. Name - Specialty"
+            r'^(\d+)\.\s+(Dr\.\s+.+?)\s*:\s*(.+)$',  # "1. Dr. Name: Specialty"
+        ]
+        
+        for pattern in patterns:
+            match = re.match(pattern, line)
+            if match:
+                try:
+                    number = int(match.group(1))
+                    name = match.group(2).strip()
+                    specialty = match.group(3).strip()
+                    
+                    # Clean up specialty - remove trailing periods, extra spaces
+                    specialty = re.sub(r'\.$', '', specialty).strip()
+                    if not specialty or specialty.lower() in ['none', 'not specified', 'unknown']:
+                        specialty = "General Medicine"
+                    
+                    doctors.append({
+                        'number': number,
+                        'name': name,
+                        'specialty': specialty,
+                        'info': "",
+                        'full_text': line
+                    })
+                    break  # Stop after first successful match
+                except (ValueError, IndexError):
+                    continue
+    
+    return doctors
+
+def get_doctor_detailed_info(doctor_name: str, specialty: str) -> str:
+    """Get detailed information about a specific doctor with better error handling"""
+    if not conversation_chain or not vectorstore:
+        return None
+    
+    try:
+        retriever = vectorstore.as_retriever(
+            search_type="mmr",
+            search_kwargs={'k': 8, 'fetch_k': 20, 'lambda_mult': 0.5}
+        )
+        
+        # Clean the doctor name for better search
+        clean_name = re.sub(r'Dr\.?\s*', '', doctor_name).strip()
+        
+        # Multiple search strategies
+        search_queries = [
+            f"{clean_name} {specialty} doctor information",
+            f"Dr. {clean_name} {specialty}",
+            f"{clean_name} qualifications experience contact",
+            f"doctor {clean_name} hospital staff"
+        ]
+        
+        all_docs = []
+        for query in search_queries:
+            try:
+                docs = retriever.invoke(query)
+                all_docs.extend(docs)
+            except Exception as e:
+                print(f"Search query failed '{query}': {e}")
+        
+        # Remove duplicates
+        unique_docs = []
+        seen_content = set()
+        for doc in all_docs:
+            content_hash = hash(doc.page_content[:100])
+            if content_hash not in seen_content:
+                seen_content.add(content_hash)
+                unique_docs.append(doc)
+        
+        context = "\n\n".join([doc.page_content for doc in unique_docs[:10]])
+        
+        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+        prompt = f"""Based on the context, provide detailed information about Dr. {clean_name}.
+
+If specific information is not available, provide general information about {specialty} department at KG Hospital.
+
+Include whatever information is available:
+- Full name and title
+- Specialty/Department  
+- Qualifications (if available)
+- Experience (if available)
+- Contact information (if available)
+- Consultation hours (if available)
+- Any other relevant details
+
+If detailed information is not found, provide helpful guidance about consulting {specialty} department.
+
+Context:
+{context}
+
+Doctor Information:"""
+        
+        response = llm.invoke(prompt)
+        return response.content
+    except Exception as e:
+        print(f"Error getting doctor details: {e}")
+        return None
+
+# =============================================================================
+# IMPROVED QUERY HANDLING FUNCTIONS
+# =============================================================================
+def detect_information_query(message: str) -> bool:
+    """Detect if user is asking for information about symptoms, doctors, or treatment."""
+    message_lower = message.lower().strip()
+    
     info_keywords = [
         'who should i consult', 'which doctor', 'what doctor', 'who to consult',
         'who can i see', 'who do i see', 'which specialist',
@@ -443,142 +703,169 @@ def detect_information_query(message: str) -> bool:
         'treatment for', 'cure for', 'specialist for', 'doctor for',
         'suffering from', 'have', 'got', 'experiencing',
         'diabetes', 'blood pressure', 'heart', 'stomach', 'back pain',
-        'chest pain', 'throat', 'skin', 'allergy'
+        'chest pain', 'throat', 'skin', 'allergy', 'cancer', 'asthma',
+        'arthritis', 'migraine', 'infection', 'virus', 'bacterial',
+        'what is', 'what are', 'how to treat', 'how to prevent',
+        'symptoms of', 'causes of', 'diagnosis for'
     ]
     
     return any(keyword in message_lower for keyword in info_keywords)
 
 def detect_query_type(message: str):
-    """Detect if user is asking for COMPLETE doctors/departments list ONLY.
-    Returns None for specific questions that need RAG processing."""
+    """Improved query type detection"""
     message_lower = message.lower().strip()
     
-    # IMPORTANT: Check for specific questions first - these should use RAG, not bypass it
-    specific_question_indicators = [
-        'blood bank', 'cardiology', 'neurology', 'orthopedic', 'pediatric', 'radiology',
-        'surgery', 'emergency', 'oncology', 'gynecology', 'dermatology', 'diabetology',
-        'psychiatry', 'nephrology', 'urology', 'gastroenterology', 'pulmonology',
-        'do you have', 'is there', 'does', 'can i', 'how do', 'when', 'where', 'why',
-        'what is', 'what are the', 'tell me about', 'information about', 'details about',
-        'who is', 'which doctor', 'specific', 'particular', 'specializes in', 'expert in'
+    # Doctor list queries
+    doctor_queries = [
+        'list doctors', 'all doctors', 'doctors list', 'show doctors',
+        'available doctors', 'doctors available', 'list of doctors',
+        'doctor list', 'docs list', 'list doc', 'list dr',
+        'which doctors are there', 'what doctors do you have'
     ]
     
-    # If it's a specific question about a department or specialty, use RAG
-    if any(indicator in message_lower for indicator in specific_question_indicators):
-        return None  # Let RAG handle specific questions
-    
-    # Only proceed if it's a GENERAL list request
-    # Very specific patterns for complete list requests
-    complete_list_patterns = [
-        # Exact matches only
-        message_lower == 'doctors',
-        message_lower == 'doctor',
-        message_lower == 'docs',
-        message_lower == 'doc',
-        message_lower == 'departments',
-        message_lower == 'department',
-        message_lower == 'depts',
-        message_lower == 'dept',
-        # List requests without specifics
-        message_lower in ['list doctors', 'list all doctors', 'all doctors', 'doctors list', 
-                          'doctor list', 'docs list', 'doc list', 'doctors', 'show doctors', 
-                          'show all doctors', 'give me doctors', 'show me doctors'],
-        message_lower in ['list departments', 'list all departments', 'all departments', 
-                          'departments list', 'show departments', 'show all departments', 
-                          'give me departments'],
-        # Combined requests
-        'doctors with their dept' in message_lower and len(message_lower) < 40,
-        'docs with their dept' in message_lower and len(message_lower) < 40,
+    # Department list queries  
+    dept_queries = [
+        'list departments', 'all departments', 'departments list', 
+        'show departments', 'available departments', 'list of departments',
+        'department list', 'depts list', 'list dept',
+        'which departments are there', 'what departments do you have'
     ]
     
-    # Check if it's a complete list request
-    is_complete_list = any(complete_list_patterns)
-    
-    if not is_complete_list:
-        return None  # Use RAG for anything else
-    
-    # Determine type only for complete list requests
-    if 'doctors with their dept' in message_lower or 'docs with their dept' in message_lower:
+    # Check for exact matches first
+    if any(query == message_lower for query in doctor_queries):
         return 'doctors'
-    elif any(word in message_lower for word in ['doctors', 'doctor', 'docs', 'doc']) and \
-         any(word in message_lower for word in ['departments', 'department']):
-        return 'separate'
-    elif any(word in message_lower for word in ['doctors', 'doctor', 'docs', 'doc']):
-        return 'doctors'
-    elif any(word in message_lower for word in ['departments', 'department', 'depts', 'dept']):
+    elif any(query == message_lower for query in dept_queries):
         return 'departments'
+    
+    # Check for partial matches
+    if any(query in message_lower for query in doctor_queries):
+        return 'doctors'
+    elif any(query in message_lower for query in dept_queries):
+        return 'departments'
+    
+    # Check for simple keywords (only if message is short)
+    if len(message_lower) < 50:
+        if any(word in message_lower for word in ['doctors', 'doctor', 'docs', 'doc']) and \
+           not any(word in message_lower for word in ['appointment', 'book', 'schedule', 'availability']):
+            return 'doctors'
+        elif any(word in message_lower for word in ['departments', 'department', 'depts', 'dept']):
+            return 'departments'
     
     return None
 
 def get_doctors_list():
-    """Return a formatted list of doctors with their specialties."""
+    """Improved doctors list retrieval with better formatting"""
     if not conversation_chain or not vectorstore:
         return None
     
     try:
-        # Use the same retriever configuration as main chain for consistency
-        retriever = vectorstore.as_retriever(
-            search_type="mmr",
-            search_kwargs={'k': 10, 'fetch_k': 25, 'lambda_mult': 0.5}
-        )
-        docs = retriever.invoke("list all doctors and their specialties")
+        # Try multiple search queries to get comprehensive results
+        search_queries = [
+            "list all doctors and their specialties departments",
+            "doctors names specialties departments cardiology surgery",
+            "medical staff doctors physicians specialists",
+            "consulting doctors cardiologists surgeons physicians"
+        ]
         
-        # Extract doctor information from the retrieved documents
-        context = "\n\n".join([doc.page_content for doc in docs])
+        all_docs = []
+        for query in search_queries:
+            try:
+                retriever = vectorstore.as_retriever(
+                    search_type="mmr",
+                    search_kwargs={'k': 10, 'fetch_k': 25, 'lambda_mult': 0.5}
+                )
+                docs = retriever.invoke(query)
+                all_docs.extend(docs)
+            except Exception as e:
+                print(f"Error in query '{query}': {e}")
         
-        # Use LLM to extract just doctor names and specialties
+        # Remove duplicates
+        unique_docs = []
+        seen_content = set()
+        for doc in all_docs:
+            content_hash = hash(doc.page_content[:100])  # Hash first 100 chars for deduplication
+            if content_hash not in seen_content:
+                seen_content.add(content_hash)
+                unique_docs.append(doc)
+        
+        context = "\n\n".join([doc.page_content for doc in unique_docs[:20]])
+        
         llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
-        prompt = f"""Based on the following context, list ONLY the doctor names with their specialties/departments on the SAME line.
+        prompt = f"""Based on the context, extract ALL doctors with their specialties.
 
-Format each entry as: Dr. Name, Specialty/Department
-
-Important rules:
-- Each doctor's specialty MUST be on the same line as their name
-- Use format: "Dr. Name, Specialty" (all on one line, separated by comma)
-- Do NOT include IDs, employee numbers, extensions, or contact information
-- Do not add any introductory text, notes, or additional information
-- Do not add phrases like "may not be exhaustive" or disclaimers
-- Use NUMBERED format (1. 2. 3.) NOT bullet points (•)
+CRITICAL FORMATTING RULES:
+- Format EXACTLY as: Number. Dr. Full Name, Specialty
+- Ensure ALL numbers are sequential starting from 1
+- Do NOT skip any numbers
+- If specialty is not clear, use "General Medicine"
+- Include ALL doctors mentioned in the context
+- Do not add any introductory text, notes, or explanations
+- Each doctor on a separate line
 
 Context:
 {context}
 
-Doctors:"""
+Doctors List:"""
         
         response = llm.invoke(prompt)
-        return response.content
+        return response.content.strip()
     except Exception as e:
         print(f"Error getting doctors list: {e}")
         return None
 
 def get_departments_list():
-    """Return a formatted list of departments."""
+    """Improved departments list retrieval"""
     if not conversation_chain or not vectorstore:
         return None
     
     try:
-        # Use the same retriever configuration as main chain for consistency
-        retriever = vectorstore.as_retriever(
-            search_type="mmr",
-            search_kwargs={'k': 10, 'fetch_k': 25, 'lambda_mult': 0.5}
-        )
-        docs = retriever.invoke("list all hospital departments")
+        # Try multiple search queries
+        search_queries = [
+            "list all hospital departments",
+            "medical departments specialties",
+            "clinical departments services",
+            "hospital departments list"
+        ]
         
-        # Extract department information from the retrieved documents
-        context = "\n\n".join([doc.page_content for doc in docs])
+        all_docs = []
+        for query in search_queries:
+            try:
+                retriever = vectorstore.as_retriever(
+                    search_type="mmr",
+                    search_kwargs={'k': 6, 'fetch_k': 15, 'lambda_mult': 0.5}
+                )
+                docs = retriever.invoke(query)
+                all_docs.extend(docs)
+            except Exception as e:
+                print(f"Error in query '{query}': {e}")
         
-        # Use LLM to extract just department names
+        # Remove duplicates
+        unique_docs = []
+        seen_content = set()
+        for doc in all_docs:
+            if doc.page_content not in seen_content:
+                seen_content.add(doc.page_content)
+                unique_docs.append(doc)
+        
+        context = "\n\n".join([doc.page_content for doc in unique_docs[:10]])
+        
         llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
-        prompt = f"""Based on the following context, list ONLY the department names.
+        prompt = f"""Based on the context, extract ALL hospital departments.
 
-Do not add any introductory text, notes, explanations, or additional information.
-Do not add phrases like "may not be exhaustive" or "additional departments not listed".
-Use NUMBERED format (1. 2. 3.) NOT bullet points (•).
+Format each entry as: Number. Department Name
+
+Important rules:
+- List EVERY department mentioned in the context
+- Each department on a separate line with number
+- Format: "1. Department Name"
+- Include ALL available departments
+- Do not skip any departments mentioned
+- Do not add any introductory text or notes
 
 Context:
 {context}
 
-Departments:"""
+Departments List:"""
         
         response = llm.invoke(prompt)
         return response.content
@@ -587,29 +874,218 @@ Departments:"""
         return None
 
 # =============================================================================
-# CHAT ENDPOINT WITH FORMATTED OUTPUT
+# IMPROVED MEDICAL QUERY HANDLER
+# =============================================================================
+def handle_medical_query(message: str, user_role: str) -> str:
+    """Handle medical queries intelligently using RAG with fallback knowledge"""
+    if not conversation_chain or not vectorstore:
+        return get_fallback_medical_response(message)
+    
+    try:
+        # Use broader search for medical queries
+        retriever = vectorstore.as_retriever(
+            search_type="mmr",
+            search_kwargs={'k': 12, 'fetch_k': 25, 'lambda_mult': 0.4}
+        )
+        
+        # Expand search terms for better context retrieval
+        expanded_query = f"{message} hospital medical treatment symptoms diagnosis"
+        docs = retriever.invoke(expanded_query)
+        context = "\n\n".join([doc.page_content for doc in docs])
+        
+        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+        
+        prompt = f"""You are a helpful AI assistant for KG Hospital. A user is asking a medical-related question.
+
+User Question: {message}
+
+Available Hospital Context:
+{context}
+
+IMPORTANT GUIDELINES:
+1. Use the hospital context above to provide relevant information
+2. If the context contains specific information about the hospital's services, doctors, or departments related to this query, share that information
+3. You can provide general medical information that would be helpful, but always clarify this is general knowledge
+4. EMPHASIZE that for proper medical advice, they should consult with healthcare professionals
+5. Be helpful and informative while maintaining medical accuracy
+6. If the context doesn't have specific information, still try to be helpful by guiding them to the right department or suggesting they contact the hospital
+
+Provide a comprehensive, helpful response:"""
+        
+        response = llm.invoke(prompt)
+        return response.content
+        
+    except Exception as e:
+        print(f"Error in medical query handling: {e}")
+        return get_fallback_medical_response(message)
+
+def get_fallback_medical_response(query: str) -> str:
+    """Provide intelligent fallback responses for medical queries"""
+    query_lower = query.lower()
+    
+    # Map symptoms to potential departments
+    symptom_department_map = {
+        'fever': 'General Medicine or Infectious Diseases',
+        'headache': 'Neurology or General Medicine',
+        'cold': 'General Medicine or ENT',
+        'cough': 'Pulmonology or General Medicine',
+        'chest pain': 'Cardiology or Emergency Medicine',
+        'stomach': 'Gastroenterology or General Medicine',
+        'heart': 'Cardiology',
+        'brain': 'Neurology or Neurosurgery',
+        'lung': 'Pulmonology',
+        'kidney': 'Nephrology',
+        'liver': 'Gastroenterology',
+        'bone': 'Orthopedics',
+        'skin': 'Dermatology',
+        'eye': 'Ophthalmology',
+        'ear': 'ENT',
+        'nose': 'ENT',
+        'throat': 'ENT',
+        'child': 'Pediatrics',
+        'pregnant': 'Gynecology',
+        'cancer': 'Oncology',
+        'diabetes': 'Endocrinology',
+        'blood pressure': 'Cardiology or General Medicine',
+        'mental': 'Psychiatry',
+        'anxiety': 'Psychiatry',
+        'depression': 'Psychiatry'
+    }
+    
+    # Find relevant department
+    relevant_dept = "the appropriate medical department"
+    for symptom, dept in symptom_department_map.items():
+        if symptom in query_lower:
+            relevant_dept = dept
+            break
+    
+    return f"""I understand you're asking about a medical concern. While I can provide general information, it's important to consult with healthcare professionals for proper medical advice.
+
+Based on your query, you may want to visit our **{relevant_dept}** department at KG Hospital. 
+
+Our medical staff can provide:
+- Proper diagnosis and examination
+- Personalized treatment plans
+- Professional medical guidance
+- Follow-up care and monitoring
+
+For immediate assistance, please contact KG Hospital at 📞 0422-2324105 or visit our emergency department if this is urgent.
+
+Would you like me to help you find specific doctors in {relevant_dept.split(' or ')[0]} department?"""
+
+# =============================================================================
+# IMPROVED CHAT ENDPOINT WITH BETTER NUMBER HANDLING
 # =============================================================================
 @app.post("/chat", response_model=ChatResponse)
 async def chat(message: ChatMessage):
-    """Chat endpoint with user-friendly, readable responses."""
+    """Enhanced chat endpoint with improved number reference handling."""
     global conversation_chain
 
     try:
-        print(f"Chat request ({message.user_role}): {message.message}")
+        # Cleanup expired sessions periodically
+        cleanup_expired_sessions()
         
-        # Check if this is a simple greeting - return hardcoded response
+        # Get or create user session
+        user_id = message.user_id or "anonymous"
+        session = get_user_session(user_id)
+        
+        print(f"Chat request ({message.user_role}): {message.message}")
+        print(f"Current session context: {session.context_type}, Doctors in session: {len(session.last_doctor_list)}")
+        
+        # IMPROVED: Check if user is referencing a number from previous list
+        ref_number = detect_number_reference(message.message)
+        if ref_number is not None:
+            print(f"Detected number reference: {ref_number}")
+            print(f"Session valid: {session.is_session_valid()}")
+            print(f"Available doctors in session: {[doc['number'] for doc in session.last_doctor_list]}")
+            
+            if session.is_session_valid():
+                # Check if it's a doctor reference
+                doctor = session.get_doctor_by_number(ref_number)
+                if doctor:
+                    print(f"Found doctor: {doctor['name']} (Number {doctor['number']})")
+                    # Get detailed information about this doctor
+                    detailed_info = get_doctor_detailed_info(doctor['name'], doctor['specialty'])
+                    
+                    if detailed_info:
+                        response_text = detailed_info
+                    else:
+                        # Fallback to basic info
+                        response_text = f"**{doctor['name']}**\n\n"
+                        response_text += f"**Specialty:** {doctor['specialty']}\n\n"
+                        if doctor['info']:
+                            response_text += f"**Additional Information:** {doctor['info']}\n\n"
+                        response_text += "For appointments or more information, please contact KG Hospital at 0422-2324105."
+                    
+                    formatted_answer = format_response_text(response_text)
+                    formatted_answer = add_actionable_elements(formatted_answer)
+                    
+                    # Add appointment booking option
+                    formatted_answer += f"\n\nWould you like to book an appointment with {doctor['name']}?"
+                    
+                    return ChatResponse(
+                        response=formatted_answer,
+                        timestamp=datetime.now().isoformat(),
+                        is_appointment_request=False,
+                        appointment_id=None,
+                        show_appointment_button=True,
+                        suggested_reason=f"Consultation with {doctor['name']}",
+                        context_type='doctor_detail'
+                    )
+                
+                # Check if it's a department reference
+                department = session.get_department_by_number(ref_number)
+                if department:
+                    print(f"Found department: {department['name']}")
+                    response_text = f"**{department['name']}**\n\n"
+                    if department['info']:
+                        response_text += f"{department['info']}\n\n"
+                    response_text += "For more information, please contact KG Hospital at 0422-2324105."
+                    
+                    formatted_answer = format_response_text(response_text)
+                    formatted_answer = add_actionable_elements(formatted_answer)
+                    
+                    return ChatResponse(
+                        response=formatted_answer,
+                        timestamp=datetime.now().isoformat(),
+                        is_appointment_request=False,
+                        appointment_id=None,
+                        context_type='department_detail'
+                    )
+            
+            # Number not found in context or session expired
+            if session.context_type == 'doctors' and session.last_doctor_list:
+                available_numbers = [str(doc['number']) for doc in session.last_doctor_list]
+                error_msg = f"I don't see number {ref_number} in the current doctors list. Please choose a valid number from: {', '.join(available_numbers)}"
+            elif session.context_type == 'departments' and session.last_department_list:
+                available_numbers = [str(dept['number']) for dept in session.last_department_list]
+                error_msg = f"I don't see number {ref_number} in the current departments list. Please choose a valid number from: {', '.join(available_numbers)}"
+            else:
+                error_msg = f"I don't have an active numbered list to reference. Please ask me about doctors or departments first."
+            
+            return ChatResponse(
+                response=error_msg,
+                timestamp=datetime.now().isoformat(),
+                is_appointment_request=False,
+                appointment_id=None
+            )
+        
+        # Check if this is a simple greeting
         greeting_patterns = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 'greetings']
         message_lower = message.message.lower().strip()
         is_greeting = any(message_lower == pattern or message_lower.startswith(f"{pattern} ") or message_lower.startswith(f"{pattern}!") for pattern in greeting_patterns)
         
         if is_greeting:
-            # Return role-specific greeting without any lists or extra info
             greeting_responses = {
                 "visitor": "Hello! I'm here to help you with KG Hospital information. How can I assist you today?",
                 "staff": "Hello. How can I help you today?",
                 "admin": "Hello. How can I assist you with hospital management today?"
             }
             greeting_answer = greeting_responses.get(message.user_role, greeting_responses["visitor"])
+            
+            # Clear any previous context on new greeting
+            session.clear_context()
+            
             return ChatResponse(
                 response=greeting_answer,
                 timestamp=datetime.now().isoformat(),
@@ -654,167 +1130,132 @@ For detailed directions and map, please visit: https://www.kghospital.com/"""
         
         if query_type:
             answer = ""
+            raw_doctor_list = ""
             if query_type == 'doctors':
-                doctors = get_doctors_list()
-                if doctors:
-                    answer = doctors
+                raw_doctor_list = get_doctors_list()
+                if raw_doctor_list:
+                    answer = raw_doctor_list
+                    # Extract and store structured doctor info WITH RAW LIST
+                    try:
+                        retriever = vectorstore.as_retriever(
+                            search_type="mmr",
+                            search_kwargs={'k': 10, 'fetch_k': 25, 'lambda_mult': 0.5}
+                        )
+                        docs = retriever.invoke("list all doctors and their specialties")
+                        context = "\n\n".join([doc.page_content for doc in docs])
+                        structured_doctors = extract_structured_doctor_info(context)
+                        if structured_doctors:
+                            # IMPROVED: Store both structured data and raw list
+                            session.set_doctor_list(structured_doctors, raw_doctor_list)
+                            print(f"Structured doctors stored: {[doc['number'] for doc in structured_doctors]}")
+                    except Exception as e:
+                        print(f"Error extracting structured doctors: {e}")
+                        # Still store the raw list as fallback
+                        session.set_doctor_list([], raw_doctor_list)
+                else:
+                    # Fallback if RAG doesn't return doctors
+                    answer = "I'll help you find information about our doctors. Let me check our available medical staff..."
+                    # Use medical query handler as fallback
+                    answer = handle_medical_query("doctors list", message.user_role)
+                        
             elif query_type == 'departments':
                 departments = get_departments_list()
                 if departments:
                     answer = departments
-            elif query_type == 'separate':
-                doctors = get_doctors_list()
-                departments = get_departments_list()
-                if doctors and departments:
-                    answer = f"**Doctors:**\n\n{doctors}\n\n**Departments:**\n\n{departments}"
-                elif doctors:
-                    answer = doctors
-                elif departments:
-                    answer = departments
+                else:
+                    answer = handle_medical_query("hospital departments list", message.user_role)
             
             # If we got a specific answer, format and return it
             if answer:
                 formatted_answer = format_response_text(answer)
                 formatted_answer = add_actionable_elements(formatted_answer)
                 
+                # Add helpful instruction for numbered references
+                if query_type in ['doctors', 'separate']:
+                    formatted_answer += "\n\n💡 *Tip: Type a doctor's number (e.g., \"1\" or \"doctor 3\") to get detailed information and book an appointment.*"
+                
                 return ChatResponse(
                     response=formatted_answer,
                     timestamp=datetime.now().isoformat(),
                     is_appointment_request=False,
-                    appointment_id=None
+                    appointment_id=None,
+                    context_type='doctors' if query_type in ['doctors', 'separate'] else 'departments'
                 )
         
+        # Check if this is a medical query and handle it intelligently
+        is_medical_query = detect_information_query(message.message)
+        
+        if is_medical_query:
+            medical_answer = handle_medical_query(message.message, message.user_role)
+            formatted_answer = format_response_text(medical_answer)
+            formatted_answer = add_actionable_elements(formatted_answer)
+            
+            return ChatResponse(
+                response=formatted_answer,
+                timestamp=datetime.now().isoformat(),
+                is_appointment_request=False,
+                appointment_id=None,
+                show_appointment_button=True,
+                suggested_reason="Medical consultation",
+                context_type='medical'
+            )
+        
         # Continue with normal RAG processing for other queries
-
         if conversation_chain:
-            response = conversation_chain.invoke({'question': message.message})
-            answer = response.get('answer', '')
+            try:
+                response = conversation_chain.invoke({'question': message.message})
+                answer = response.get('answer', '')
+                
+                # Check if the answer contains restrictive phrases and improve it
+                restrictive_phrases = [
+                    "I don't have that specific information",
+                    "not in my current knowledge base", 
+                    "please contact KG Hospital",
+                    "I don't know",
+                    "I cannot provide"
+                ]
+                
+                if any(phrase in answer for phrase in restrictive_phrases):
+                    # Try to provide a more helpful response using medical query handler
+                    improved_answer = handle_medical_query(message.message, message.user_role)
+                    if improved_answer and not any(phrase in improved_answer for phrase in restrictive_phrases):
+                        answer = improved_answer
+                
+                # Check if the answer contains a list of doctors (for specialty queries)
+                if re.search(r'\d+\.\s+Dr\.', answer):
+                    # This looks like a doctor list - extract and store it
+                    try:
+                        retriever = vectorstore.as_retriever(
+                            search_type="mmr",
+                            search_kwargs={'k': 10, 'fetch_k': 25, 'lambda_mult': 0.5}
+                        )
+                        docs = retriever.invoke(message.message)
+                        context = "\n\n".join([doc.page_content for doc in docs])
+                        structured_doctors = extract_structured_doctor_info(context)
+                        if structured_doctors:
+                            session.set_doctor_list(structured_doctors)
+                            # Add helpful instruction
+                            answer += "\n\n💡 *Tip: Type a doctor's number (e.g., \"1\" or \"doctor 2\") to get detailed information and book an appointment.*"
+                    except Exception as e:
+                        print(f"Error extracting structured doctors from RAG: {e}")
+                    
+            except Exception as e:
+                print(f"RAG chain error: {e}")
+                # Fallback to direct LLM response
+                answer = handle_medical_query(message.message, message.user_role)
         else:
-            llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+            # Fallback when no conversation chain
+            answer = handle_medical_query(message.message, message.user_role)
 
-            system_prompts = {
-                "visitor": """You are KG Hospital's AI Assistant for Visitors.
-
-ROLE: Help visitors with general hospital information in a friendly, conversational way.
-
-GREETING RESPONSES (for "hi", "hello", "hey", "good morning", "good evening"):
-- Respond ONLY with: "Hello! I'm here to help you with KG Hospital information. How can I assist you today?"
-- ABSOLUTELY NO DOCTOR LISTS - wait for them to ask
-- ABSOLUTELY NO DEPARTMENT LISTS - wait for them to ask
-- ABSOLUTELY NO EXAMPLES - just greet and ask how to help
-- DO NOT include hospital phone numbers in greetings
-- Keep greetings to 1-2 sentences maximum
-
-RESPONSE GUIDELINES:
-✓ Be warm, welcoming, and conversational
-✓ For greetings: Keep it simple, ask how you can help
-✓ For specific questions: Provide clear, direct answers
-✓ Use simple language (avoid medical jargon)
-✓ Only provide contact info when relevant to the query
-
-TOPICS YOU HANDLE:
-• Visiting hours and policies
-• Hospital location, directions, and parking
-• Facilities and amenities (cafeteria, restrooms, ATM)
-• General inquiries and navigation
-• Appointment booking guidance
-• Doctor and department information (only when asked)
-
-WHAT YOU DON'T HANDLE:
-✗ Medical advice (refer to doctors)
-✗ Patient medical records (privacy protected)
-✗ Emergency situations (mention emergency contact only if asked)
-
-If you don't know: "I don't have that information right now. You can visit our front desk or check our official website for more details."
-
-Remember: Be helpful, accurate, and conversational. Don't overwhelm with unsolicited information.""",
-
-                "staff": """You are KG Hospital's AI Assistant for Hospital Staff.
-
-ROLE: Support staff with operational information, protocols, and resource access.
-
-GREETING RESPONSES (for "hi", "hello", "hey", "good morning", "good evening"):
-- Respond ONLY with: "Hello. How can I help you today?"
-- ABSOLUTELY NO LISTS of any kind in greetings
-- Keep greetings to 1 sentence only
-
-RESPONSE GUIDELINES:
-✓ Be precise and professional
-✓ Prioritize efficiency - staff are busy
-✓ For greetings: Brief, professional
-✓ For queries: Include relevant policy references
-✓ Provide step-by-step instructions when needed
-✓ Format: Use numbered lists for procedures
-
-TOPICS YOU HANDLE:
-• Department contacts and extensions
-• Emergency protocols and procedures
-• Hospital policies and guidelines
-• Equipment and resource locations
-• Staff scheduling information
-• Patient inquiry guidance (non-medical)
-
-If you don't know: "This information is not in my current database. Please contact hospital administration at ext. 2100 or check the staff portal."
-
-Example Response:
-"For a Code Blue emergency:
-1. Call ext. 2222 immediately
-2. Start CPR if trained
-3. Get the crash cart from the nearest nursing station
-4. Clear the area for the response team
-The ICU team responds within 2 minutes. See Emergency Protocol Manual Section 4.2 for full procedures."
-
-Remember: You support healthcare professionals - be accurate, quick, and reliable.""",
-
-                "admin": """You are KG Hospital's AI Assistant for Administrators.
-
-ROLE: Provide management-level information for hospital operations and decision-making.
-
-GREETING RESPONSES (for "hi", "hello", "hey", "good morning", "good evening"):
-- Respond ONLY with: "Hello. How can I assist you with hospital management today?"
-- ABSOLUTELY NO LISTS of any kind in greetings
-- ABSOLUTELY NO CONTACT INFORMATION in greetings
-- Keep greetings to 1 sentence only
-
-RESPONSE GUIDELINES:
-✓ Be professional, concise, and direct
-✓ For greetings: Simple acknowledgment, no extra information
-✓ For data requests: Provide comprehensive, structured information
-✓ Include metrics and statistics when relevant
-✓ NO public hospital phone numbers in responses (admins have internal access)
-
-TOPICS YOU HANDLE:
-• Hospital operations and performance
-• Department coordination and resources
-• Administrative procedures and policies
-• Staff management and scheduling
-• System status and analytics
-• Doctor and department listings (only when requested)
-
-RESPONSE APPROACH:
-- For simple greetings: Brief professional response
-- For data queries: Comprehensive structured information
-- For unknowns: "This data is not available. Check internal management reports or department heads."
-
-Remember: Admins need efficiency and accuracy, not marketing content. Be concise."""
-            }
-
-            system_prompt = system_prompts.get(message.user_role, system_prompts["visitor"])
-            full_prompt = f"{system_prompt}\n\nUser Question: {message.message}\n\nResponse:"
-            response = llm.invoke(full_prompt)
-            answer = response.content
-
-        if not answer.strip() or "I don't know" in answer or "I'm not sure" in answer:
-            answer = ("I'm happy to help with your query. "
-                      "While I don’t have specific information on that at the moment, "
-                      "you can contact KG Hospital’s support or visit the front desk anytime for assistance.")
+        if not answer.strip():
+            answer = ("I'm happy to help with your query about KG Hospital. "
+                     "For detailed information, you can contact KG Hospital's support at 0422-2324105 "
+                     "or visit the front desk for assistance.")
 
         formatted_answer = format_response_text(answer)
-        
-        # Add actionable elements (phone numbers, locations, etc.)
         formatted_answer = add_actionable_elements(formatted_answer)
 
-        # Detect appointment intent and information query
+        # Detect appointment intent
         is_appointment = False
         new_appointment_id = None
         show_booking_button = False
@@ -828,8 +1269,7 @@ Remember: Admins need efficiency and accuracy, not marketing content. Be concise
                 wants_appointment = bool(detect_appointment_intent(message.message))
             
             # COMPOUND QUERY: User asks about symptoms/doctors AND wants appointment
-            if has_info_query and wants_appointment:
-                # Don't immediately book - show info with booking button
+            if (has_info_query or is_medical_query) and wants_appointment:
                 show_booking_button = True
                 
                 # Extract reason from the query for pre-filling
@@ -863,12 +1303,11 @@ Remember: Admins need efficiency and accuracy, not marketing content. Be concise
                         suggested_reason_text = reason
                         break
                 
-                # Add appointment button prompt to the answer
-                formatted_answer += "\n\nWould you like to book an appointment with one of these doctors?"
+                if not any("appointment" in line.lower() for line in formatted_answer.split('\n')):
+                    formatted_answer += "\n\nWould you like to book an appointment with one of our doctors?"
                 
             # SIMPLE APPOINTMENT REQUEST: User only wants to book
             elif wants_appointment:
-                # Extract simple details including phone number
                 details = {"date": None, "time": None, "reason": None}
                 if 'extract_appointment_details' in globals() and callable(extract_appointment_details):
                     try:
@@ -884,6 +1323,7 @@ Remember: Admins need efficiency and accuracy, not marketing content. Be concise
                 preferred_date = details.get('date') or 'Not specified'
                 preferred_time = details.get('time') or 'Not specified'
                 reason = details.get('reason') or 'General consultation'
+                
                 if 'save_appointment_request' in globals() and callable(save_appointment_request):
                     try:
                         new_appointment_id = save_appointment_request(
@@ -896,7 +1336,7 @@ Remember: Admins need efficiency and accuracy, not marketing content. Be concise
                         )
                         if new_appointment_id:
                             is_appointment = True
-                            # Extract name from message (look for patterns like "for [name]", "name: [name]", or just first word)
+                            # Extract name from message
                             name = "Patient"
                             name_patterns = [
                                 r'(?:for|name:?)\s+([A-Za-z]+)',
@@ -909,7 +1349,6 @@ Remember: Admins need efficiency and accuracy, not marketing content. Be concise
                                     name = name_match.group(1).capitalize()
                                     break
                             
-                            # Replace the entire response with clean success message
                             phone_line = f"[TEL:{phone_number}]" if phone_number else "Not provided"
                             formatted_answer = (
                                 f"Appointment request has been successfully sent to the admin, soon we will reach out to you.\n\n"
@@ -921,14 +1360,14 @@ Remember: Admins need efficiency and accuracy, not marketing content. Be concise
                             )
                     except Exception:
                         pass
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Appointment detection error: {e}")
 
-        # Save chat history via admin module (in-memory by default)
+        # Save chat history
         try:
             if save_chat_history:
                 save_chat_history(
-                    user_id=message.user_id or "anonymous",
+                    user_id=user_id,
                     user_role=message.user_role,
                     message=message.message,
                     response=formatted_answer,
@@ -943,12 +1382,22 @@ Remember: Admins need efficiency and accuracy, not marketing content. Be concise
             is_appointment_request=is_appointment,
             appointment_id=new_appointment_id,
             show_appointment_button=show_booking_button,
-            suggested_reason=suggested_reason_text
+            suggested_reason=suggested_reason_text,
+            context_type=session.context_type if session.is_session_valid() else None
         )
 
     except Exception as e:
         print(f"Chat error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error generating response: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # Provide helpful error response instead of crashing
+        error_response = "I apologize for the technical issue. Please try again or contact KG Hospital directly at 0422-2324105 for assistance."
+        return ChatResponse(
+            response=error_response,
+            timestamp=datetime.now().isoformat(),
+            is_appointment_request=False,
+            appointment_id=None
+        )
 
 # =============================================================================
 # RESPONSE FORMATTER
@@ -959,7 +1408,6 @@ def format_response_text(text: str) -> str:
     if not text:
         return "I'm happy to assist. You can also contact KG Hospital for detailed guidance."
 
-    # Clean up the text first
     original_text = text.strip()
     
     # Check if this contains table content
@@ -967,7 +1415,6 @@ def format_response_text(text: str) -> str:
     has_table_request = 'table format' in original_text.lower()
     
     if has_markdown_table or has_table_request:
-        # For table content, clean up but preserve the table structure
         lines = original_text.split('\n')
         cleaned_lines = []
         in_table = False
@@ -975,69 +1422,42 @@ def format_response_text(text: str) -> str:
         for line in lines:
             stripped_line = line.strip()
             
-            # Detect table start (header row with multiple |)
             if stripped_line.startswith('|') and stripped_line.count('|') >= 3:
                 if not in_table:
-                    # First table row - this starts our table
                     in_table = True
-                cleaned_lines.append(line)  # Keep table rows
+                cleaned_lines.append(line)
                 continue
                 
-            # Detect table separator row
             if stripped_line.startswith('|') and '---' in stripped_line:
-                cleaned_lines.append(line)  # Keep separator
+                cleaned_lines.append(line)
                 continue
                 
-            # If we're in a table and hit a non-table line, table ended
             if in_table and not stripped_line.startswith('|'):
                 in_table = False
                 
-            # Always keep non-table content
             if not stripped_line.startswith('|') or not in_table:
                 cleaned_lines.append(line)
         
         return '\n'.join(cleaned_lines).strip()
     
-    # STEP 1: Fix ALL broken words that got split (MOST IMPORTANT)
-    # "department\ns" -> "departments"
-    # "doctor\ns" -> "doctors" 
-    # "service\ns" -> "services"
-    # "hospital\ns" -> "hospitals"
-    # Any word + \n + s = word + s
+    # Fix broken words
     text = re.sub(r'([a-zA-Z])\s*\n\s*s\b', r'\1s', original_text)
-    
-    # STEP 2: Fix other broken words (any letter + newline + lowercase letters)
     text = re.sub(r'([a-zA-Z])\s*\n\s*([a-z]+)', r'\1\2', text)
-    
-    # STEP 3: Fix broken sentences (words that should be on same line)
-    # "The Hospital Has The Following\nDepartments:" -> "The Hospital Has The Following Departments:"
     text = re.sub(r'([a-zA-Z,])\s*\n\s*([a-z][^A-Z]*)', r'\1 \2', text)
-    
-    # STEP 3.5: Fix numbered lists where number is separated from content
-    # "1.\n\nDr. Name" -> "1. Dr. Name"
-    # "2]. \nDr. Name" -> "2. Dr. Name"
     text = re.sub(r'(\d+)[\.\]]\s*\n+\s*', r'\1. ', text)
-    
-    # STEP 3.6: Remove ID/extension information from doctor lists
-    # ", ID: 1234" -> ""
-    # ", Ext: 1234" -> ""
     text = re.sub(r',?\s*(?:ID|Ext|Extension):\s*\d+', '', text)
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
     
-    # STEP 4: Clean up excessive whitespace
-    text = re.sub(r'[ \t]+', ' ', text)  # Multiple spaces to single space
-    text = re.sub(r'\n{3,}', '\n\n', text)  # Multiple newlines to double newline
-    
-    # STEP 5: Just return the cleaned text - no complex processing
     return text.strip()
 
 def add_actionable_elements(text: str) -> str:
     """Add special markers for actionable elements like phone numbers, doctor profiles, locations."""
-    # Add markers for phone numbers (only match actual phone numbers with 8+ digits, not short IDs)
-    # Matches formats like: 0422-2324105, +91-9876543210, etc.
+    # Add markers for phone numbers
     phone_pattern = r'(\+?\d{1,3}[-.\s]?\(?\d{3,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{4,})'
     text = re.sub(phone_pattern, r'[TEL:\1]', text)
     
-    # Map of specialties to URL-friendly slugs
+    # Specialty map
     specialty_map = {
         'cardiologist': 'cardiologist',
         'cardiology': 'cardiologist',
@@ -1078,98 +1498,66 @@ def add_actionable_elements(text: str) -> str:
         'anesthesiology': 'anesthesiologist'
     }
     
-    # Pattern to detect doctor with specialty context
-    # Look for patterns like:
-    # "Dr. Name (Specialty)" or "Dr. Name - Specialty" or "Dr. Name, Specialty"
-    # or context from previous line mentioning specialty
-    
     lines = text.split('\n')
     processed_lines = []
     current_specialty = None
     
     for line in lines:
-        # Check if line mentions a specialty (for context)
         line_lower = line.lower()
         for specialty_key in specialty_map.keys():
             if specialty_key in line_lower:
                 current_specialty = specialty_map[specialty_key]
                 break
         
-        # Enhanced Pattern to handle:
-        # - "Dr. John Smith" (standard)
-        # - "Dr. ARUN KUMAR U" (all caps with initial)
-        # - "Dr. Balakrishnan .M" (name with suffix initial)
-        # - "Dr. ASHNA ANN EAPEN" (all caps multi-word)
-        # - "Dr. Kumudhini .D" (name with dot-initial suffix)
-        # Pattern: Dr./Doctor + name + optional suffix (space + dot + letter OR space + letter)
         doctor_pattern = r'((?:Dr\.?|Doctor)\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)(?:\s+\.?([A-Z]))?)(?=\s*(?:\(|,|-|$|\n|;|:))'
         
         def replace_doctor(match):
-            full_match = match.group(0).strip()  # Full match including suffix
-            doctor_name = match.group(2).strip()  # Main name part
-            suffix = match.group(3) if match.group(3) else ''  # Suffix initial (if any)
+            full_match = match.group(0).strip()
+            doctor_name = match.group(2).strip()
+            suffix = match.group(3) if match.group(3) else ''
             
-            # Try to find specialty from current context
             specialty_slug = current_specialty
             
-            # Convert doctor name to URL format
-            # Build the complete name including suffix for URL
             complete_name = doctor_name
             if suffix:
                 complete_name = f"{doctor_name} {suffix}"
             
-            # Convert to slug: "ARUN KUMAR U" -> "arun-kumar-u"
             name_slug = complete_name.lower()
-            name_slug = re.sub(r'\s+', '-', name_slug)  # spaces -> hyphens
-            name_slug = re.sub(r'-+', '-', name_slug)  # multiple hyphens -> single
-            name_slug = name_slug.strip('-')  # remove leading/trailing hyphens
+            name_slug = re.sub(r'\s+', '-', name_slug)
+            name_slug = re.sub(r'-+', '-', name_slug)
+            name_slug = name_slug.strip('-')
             name_slug = f"dr-{name_slug}"
             
             if specialty_slug:
-                # Format: [DOCTORPROFILE:Dr. Name Suffix|specialty-slug|dr-name-slug]
                 return f'[DOCTORPROFILE:{full_match}|{specialty_slug}|{name_slug}]'
             else:
-                # No specialty found, just return the name as-is
                 return full_match
         
-        # Replace doctor names in the line
         processed_line = re.sub(doctor_pattern, replace_doctor, line)
         processed_lines.append(processed_line)
     
     text = '\n'.join(processed_lines)
     
-    # Check if this is a doctor listing (contains multiple doctor profile markers)
     doctor_profile_count = text.count('[DOCTORPROFILE:')
-    
-    # If listing multiple doctors (3 or more), also add a link to complete doctors list at the end
     if doctor_profile_count >= 3:
         if not '[DOCTORSLIST:' in text:
             text += '\n\n[DOCTORSLIST:For complete doctors list, visit our website]'
     
-    # Check if this is a departments listing (contains multiple numbered departments)
-    # Match patterns like "1. Department" or "1) Department" with at least 3 entries
     department_pattern = r'^\s*\d+[\.)]\s+[A-Z]'
     department_count = len(re.findall(department_pattern, text, re.MULTILINE))
     
-    # If listing multiple departments (3 or more), also add a link to complete departments list at the end
     if department_count >= 3:
         if not '[DEPARTMENTSLIST:' in text:
             text += '\n\n[DEPARTMENTSLIST:For complete departments list, visit our website]'
     
-    # Add markers for hospital address/location (only for actual addresses, not "KG Hospital" name)
-    # Only mark physical addresses, not every mention of "KG Hospital"
     location_keywords = ['No. 5, Arts College Road', 'Arts College Road, Coimbatore']
     for keyword in location_keywords:
         if keyword in text:
             text = text.replace(keyword, f'[LOCATION:{keyword}]')
-            break  # Only mark first occurrence
+            break
     
-    # Add markers for emergency numbers
     emergency_pattern = r'(emergency|ambulance|helpline)[\s:]+(\+?\d[\d\s-]+)'
     text = re.sub(emergency_pattern, r'\1: [EMERGENCY:\2]', text, flags=re.IGNORECASE)
-    
-    # Department markers disabled to avoid partial matches (e.g., "Surgery" in "Robotic Surgery")
-    # Departments will display as plain text without clickable elements
     
     return text
 
@@ -1183,12 +1571,12 @@ async def root():
         "status": "running",
         "version": "1.0.0",
         "firebase_initialized": FIREBASE_INITIALIZED,
-        "documents_loaded": len(loaded_documents) > 0
+        "documents_loaded": len(loaded_documents) > 0,
+        "active_sessions": len(user_sessions)
     }
 
 @app.post("/upload-document")
 async def upload_document(file: UploadFile = File(...)):
-    # Check if file format is supported
     allowed_extensions = ['.pdf', '.csv', '.xlsx', '.xls']
     file_ext = os.path.splitext(file.filename)[1].lower()
     
@@ -1198,7 +1586,6 @@ async def upload_document(file: UploadFile = File(...)):
             detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}"
         )
 
-    # Use the original file extension for temp file
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
     temp_file_path = temp_file.name
 
@@ -1249,6 +1636,7 @@ async def system_status():
         "vectorstore_ready": vectorstore is not None,
         "conversation_chain_ready": conversation_chain is not None,
         "groq_api_configured": bool(os.getenv("GROQ_API_KEY")),
+        "active_sessions": len(user_sessions),
         "timestamp": datetime.now().isoformat()
     }
 

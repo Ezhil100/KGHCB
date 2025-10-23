@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
-const API_BASE_URL = 'http://172.16.53.40:8000'; // WiFi network access
+const API_BASE_URL = 'http://localhost:8000'; // WiFi network access
 
 // Time formatting helpers (no seconds)
 const formatTime = (date) => {
